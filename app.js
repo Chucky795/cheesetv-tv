@@ -174,8 +174,8 @@ const nativeOK=()=>!!V.canPlayType('application/vnd.apple.mpegurl');
 function teardown(){stopRecording(true);try{P.hls&&P.hls.destroy()}catch(e){}try{P.ts&&P.ts.destroy()}catch(e){}P.hls=P.ts=null;if(P.rec){P.rec.stop();if(Local.live===P.rec)Local.live=null;P.rec=null}
  V.onerror=V.onplaying=null;V.removeAttribute('src');V.load()}
 function spin(on){$('#pSpin').classList.toggle('on',!!on);if(!on)status('')}
-function status(t){let e=$('#pSpinT');if(!e){e=document.createElement('b');e.id='pSpinT';e.className='pspin-t';$('#pSpin').appendChild(e)}e.textContent=t}
-function showErr(title,msg,detail){spin(false);$('#pErr').innerHTML=`<h4>${esc(title)}</h4><p>${esc(msg)}</p>${detail?`<p class="d">Details: ${esc(detail)}</p>`:''}<p class="note">Channels that won't play in a browser usually still work in the CheeseTV ${IOS?'iPhone app (coming soon to the App Store)':'Android / Google TV app'} or on Roku.</p><div class="row"><button class="btn dark" id="eRetry">Try again</button><a class="btn gold" href="https://watchcheesetv.com/#devices">Get the app</a></div>`;
+function status(t){let e=$('#pSpinT');if(!e){e=document.createElement('b');e.id='pSpinT';e.className='pspin-t';$('#pSpin').appendChild(e);const b=document.createElement('button');b.id='pSpinB';b.className='pspin-b';b.textContent='Details';const d=document.createElement('pre');d.id='pSpinD';d.className='pspin-d';d.hidden=true;b.onclick=ev=>{ev.stopPropagation();d.hidden=!d.hidden;d.textContent=netTxt()};$('#pSpin').append(b,d)}e.textContent=t;$('#pSpinB').hidden=!t}
+function showErr(title,msg,detail){spin(false);$('#pErr').innerHTML=`<h4>${esc(title)}</h4><p>${esc(msg)}</p>${detail?`<button class="pspin-b" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Details</button><p class="d" hidden>${esc(detail)}</p>`:''}<p class="note">Channels that won't play in a browser usually still work in the CheeseTV ${IOS?'iPhone app (coming soon to the App Store)':'Android / Google TV app'} or on Roku.</p><div class="row"><button class="btn dark" id="eRetry">Try again</button><a class="btn gold" href="https://watchcheesetv.com/#devices">Get the app</a></div>`;
  $('#pErr').hidden=false;$('#eRetry').onclick=()=>P.vod?playVod(P.vod):playChannel(P.idx,P.list)}
 function openPlayer(){$('#player').hidden=false;$('#pErr').hidden=true;$('#mini').hidden=true;osdShow();if(!$('#player').dataset.k){$('#player').dataset.k=1}}
 function playChannel(i,list){
@@ -187,36 +187,51 @@ function playChannel(i,list){
  urls.sort((a,b)=>(kind(b)==='hls')-(kind(a)==='hls'));start(urls,true);
 }
 function updNow(){const c=S.cur;if(!c||P.vod)return;const np=nowProg(c);$('#pNow').textContent=np?`${np.t} · ${hm(np.a)} – ${hm(np.b)}`:(c.group||'Live TV')}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function netLog(d){P.net={t:new Date().toLocaleTimeString(),...d};const e=$('#pSpinD');if(e&&!e.hidden)e.textContent=netTxt()}
+const redact=u=>{try{const x=new URL(u);return x.host+x.pathname.replace(/\/live\/[^/]+\/[^/]+\//,'/live/…/…/').replace(/\/(play|hls)\/[^/]+\//,'/$1/…/')}catch(e){return String(u||'').slice(0,60)}};
+const netTxt=()=>{const n=P.net;if(!n)return 'No network errors yet.';return [`${n.t} ${n.step||''}`,n.status!==undefined?`status: ${n.status}`:'',n.err?`error: ${n.err}`:'',n.url?`url: ${redact(n.url)}`:''].filter(Boolean).join('\n')};
 async function start(urls,live){
- const tok=++P.token;teardown();spin(true);$('#pErr').hidden=true;P.live=live;
+ const tok=++P.token;teardown();spin(true);$('#pErr').hidden=true;P.live=live;P.net=null;
  const T0=Date.now(),DEADLINE=60000,fresh=()=>tok===P.token&&Date.now()-T0<DEADLINE;status('Connecting…');let lastErr=null;
- for(const u of urls){
-  if(!fresh())return;
-  if(isMixed(u)){lastErr={t:"This channel can't play in a browser",m:'The stream link starts with http://, and secure web pages (https) are not allowed to play http streams. This is a browser security rule, not a problem with your channel.',d:u.replace(/\/\/([^/]+)\/.*/,'//$1/…')};continue}
-  const k=kind(u);
-  if(live&&(k==='hls'||k==='unknown')&&hlsOK()&&!P.forceNative){ // timeshift mode: we keep the segments ourselves
-   const rec=new Recorder(u);try{await Promise.race([rec.start(),new Promise((_,j)=>setTimeout(()=>j(new Error('timeout')),9000))]);
-    status('Buffering…');const t0=Date.now();while(fresh()&&!rec.err&&(rec.tracks.main.segs.length<2||rec.tracks.audio&&rec.tracks.audio.segs.length<2)&&Date.now()-t0<10000)await new Promise(r=>setTimeout(r,250));
-    if(!fresh()){rec.stop();if(tok!==P.token)return;break}
-    if(rec.tracks.main.segs.length>=1){P.rec=rec;Local.live=rec;if(await tryHls(`${LOC}live/${rec.sid}/master.m3u8`,true,tok))return setMode('shift');teardown()}else rec.stop()}
-   catch(e){rec.stop();if(e.message==='not hls'&&k==='hls'){lastErr={t:"This channel can't play here",m:"The link didn't return a video stream."}}}
-  }
-  if(!fresh())return;
-  if((k==='hls'||k==='unknown')&&(P.forceNative||IOS&&!hlsOK())&&nativeOK()){if(await tryNative(u,tok))return setMode('native');lastErr=lastErr||P.lastErr;continue}
-  if((k==='hls'||k==='unknown')&&hlsOK()){status('Trying HLS stream…');if(await tryHls(u,false,tok))return setMode(live?'buffer':'vod');lastErr=P.lastErr;continue}
-  if((k==='ts'||k==='unknown')&&window.mpegts&&mpegts.getFeatureList().mseLivePlayback){status('Trying TS stream…');if(await tryTs(u,tok))return setMode('ts');lastErr=P.lastErr;continue}
-  if(k==='ts'){lastErr={t:"This channel can't play in this browser",m:'This is a raw .ts stream. iPhone Safari can only play HLS (.m3u8) streams in a web page.'};continue}
-  if(await tryNative(u,tok))return setMode(live?'native':'vod');lastErr=P.lastErr;
+ const hlsU=urls.filter(u=>kind(u)!=='ts'),tsU=urls.filter(u=>kind(u)==='ts'||kind(u)==='unknown');
+ // 1) simplest first: plain hls.js (or native HLS), 2) direct .ts via mpegts.js, 3) native <video>. Pause & rewind (local segment store) only when the user wants it.
+ const steps=[];
+ if(live&&P.wantShift&&hlsOK())hlsU.forEach(u=>steps.push(['shift',u]));
+ // Direct .ts first where MSE exists (Android/desktop): Xtream frees a .ts connection within seconds, while an HLS session holds the 1-connection slot for ~1 minute.
+ if(live&&!P.wantShift&&!P.forceNative&&window.mpegts&&mpegts.getFeatureList().mseLivePlayback)tsU.forEach(u=>steps.push(['ts',u]));
+ hlsU.forEach(u=>steps.push([(P.forceNative||IOS&&!hlsOK())&&nativeOK()?'native':hlsOK()?'hls':'native',u]));
+ if(!(live&&!P.wantShift&&!P.forceNative)&&window.mpegts&&mpegts.getFeatureList().mseLivePlayback)tsU.forEach(u=>steps.push(['ts',u]));
+ else if(tsU.length&&!steps.length)lastErr={t:"This channel can't play in this browser",m:'This is a raw .ts stream. iPhone Safari can only play HLS (.m3u8) streams in a web page.'};
+ let first=true;
+ for(let si=0,busy=0;si<steps.length;si++){const [how,u]=steps[si];
+  if(!fresh())break;const ta=Date.now();
+  if(isMixed(u)){lastErr={t:"This channel can't play in a browser",m:'The stream link starts with http://, and secure web pages (https) are not allowed to play http streams.',d:redact(u)};continue}
+  if(!first){teardown();await sleep(800);if(!fresh())break} // let the provider free its single connection slot
+  first=false;P.lastErr=null;
+  if(how==='shift'){status('Starting pause & rewind…');const rec=new Recorder(u);
+   try{await Promise.race([rec.start(),sleep(9000).then(()=>{throw new Error('timeout')})]);const t0=Date.now();
+    while(fresh()&&!rec.err&&rec.tracks.main.segs.length<1&&Date.now()-t0<12000)await sleep(250);
+    if(fresh()&&rec.tracks.main.segs.length>=1){P.rec=rec;Local.live=rec;if(await tryHls(`${LOC}live/${rec.sid}/master.m3u8`,true,tok))return setMode('shift')}
+    netLog({step:'pause&rewind',err:rec.err?.message||'no segments',url:u})}catch(e){netLog({step:'pause&rewind',err:e.message,url:u})}
+   rec.stop();if(P.rec===rec){P.rec=null;Local.live=null}lastErr=P.lastErr||lastErr;continue}
+  if(how==='hls'){status(busy?`Waiting for your provider to free your connection… (${busy})`:'Trying HLS stream…');if(await tryHls(u,false,tok,live))return setMode(live?'buffer':'vod');lastErr=P.lastErr||lastErr;
+   if(P.net?.status===458&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'error 458'};await sleep(4000);si--;}continue}
+  if(how==='ts'){status(busy?`Waiting for your provider to free your connection… (${busy})`:'Starting stream…');if(await tryTs(u,tok))return setMode('ts');lastErr=P.lastErr||lastErr;
+   // quick refusal = the provider's 1-connection slot is still held (error 458 / 407); wait and retry the same stream
+   if(Date.now()-ta<4000&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'busy (458/407)'};await sleep(3000);si--;}continue}
+  status('Opening stream…');if(await tryNative(u,tok))return setMode(live?'native':'vod');lastErr=P.lastErr||lastErr;
  }
- if(tok===P.token){if(Date.now()-T0>=DEADLINE)lastErr=lastErr||{t:'The channel is taking too long',m:"No stream format started within a minute. The channel may be offline, your provider may allow only one connection at a time (close other apps using your login), or it blocks web browsers.",d:'timeout'};teardown();const e=lastErr||{};showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",e.d)}
+ if(tok===P.token){if(Date.now()-T0>=DEADLINE)lastErr=lastErr||{t:'The channel is taking too long',m:"No stream format started within a minute. The channel may be offline, your provider may allow only one connection at a time (close other apps using your login), or it blocks web browsers.",d:'timeout'};
+  teardown();const e=lastErr||{};showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",[e.d,P.net&&netTxt().replace(/\n/g,' · ')].filter(Boolean).join(' · '))}
 }
-function waitPlaying(tok,ms=15000){return new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;clearTimeout(t);V.removeEventListener('playing',ok);res(v)}};const ok=()=>fin(true);
- V.addEventListener('playing',ok);const t=setTimeout(()=>{P.lastErr={t:'The channel is taking too long',m:"The stream didn't start within 15 seconds. The channel may be offline, or the provider blocks web browsers.",d:'timeout'};fin(false)},ms);P.failNow=e=>{P.lastErr=e;fin(false)};
+function waitPlaying(tok,ms=14000){return new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;clearTimeout(t);V.removeEventListener('playing',ok);res(v)}};const ok=()=>fin(true);
+ V.addEventListener('playing',ok);const t=setTimeout(()=>{P.lastErr={t:'The channel is taking too long',m:"The stream didn't start within 14 seconds. The channel may be offline, or the provider blocks web browsers.",d:'timeout'};fin(false)},ms);P.failNow=e=>{P.lastErr=e;fin(false)};
  const iv=setInterval(()=>{if(tok!==P.token){clearInterval(iv);fin(false)}if(done)clearInterval(iv)},300)})}
-function tryHls(u,local,tok){
+function tryHls(u,local,tok,live){
  const h=P.hls=new Hls(local?{loader:makeLoader(),backBufferLength:90,liveSyncDurationCount:2,maxBufferLength:30,manifestLoadingMaxRetry:4,levelLoadingMaxRetry:6,fragLoadingMaxRetry:6}
-  :{backBufferLength:S.tsMin*60,maxBufferLength:30,liveMaxLatencyDurationCount:Infinity,manifestLoadingMaxRetry:1,levelLoadingMaxRetry:2});
- h.on(Hls.Events.ERROR,(_,d)=>{if(window.CTV_DEBUG)console.log('hlserr',d.type,d.details,d.fatal,d.response?.code,d.error?.message);if(!d.fatal)return;if(d.type===Hls.ErrorTypes.MEDIA_ERROR&&!h._rec){h._rec=1;h.recoverMediaError();return}const code=d.response?.code;
+  :{backBufferLength:S.tsMin*60,maxBufferLength:live?12:30,maxMaxBufferLength:live?30:600,liveSyncDurationCount:live?2:3,startFragPrefetch:true,liveMaxLatencyDurationCount:Infinity,manifestLoadingMaxRetry:1,levelLoadingMaxRetry:2,fragLoadingMaxRetry:2,manifestLoadingTimeOut:8000,levelLoadingTimeOut:8000,fragLoadingTimeOut:20000});
+ h.on(Hls.Events.ERROR,(_,d)=>{if(window.CTV_DEBUG)console.log('hlserr',d.type,d.details,d.fatal,d.response?.code,d.error?.message);if(d.type==='networkError'||d.fatal)netLog({step:'HLS '+d.details+(d.fatal?' (fatal)':''),status:d.response?.code,err:d.error?.message||d.reason,url:d.url||d.frag?.url||d.context?.url||u});if(!d.fatal)return;if(d.type===Hls.ErrorTypes.MEDIA_ERROR&&!h._rec){h._rec=1;h.recoverMediaError();return}const code=d.response?.code;
   P.failNow?.(code===0||code===undefined&&d.type==='networkError'?{t:'The provider blocks web playback',m:"The stream server didn't allow this web page to load it (CORS), or it is offline. The CheeseTV apps don't have this limit.",d:d.details}:code&&!local?{t:'Stream unavailable',m:`The provider's server answered with error ${code}. The channel may be offline or your login may have expired.`,d:d.details}:{t:"This channel can't play here",m:'The stream format is not supported in this browser.',d:d.details})});
  const w=waitPlaying(tok);h.loadSource(u);h.attachMedia(V);h.on(Hls.Events.MANIFEST_PARSED,()=>V.play().catch(()=>{}));
  return w.then(ok=>{if(!ok){try{h.destroy()}catch(e){}if(P.hls===h)P.hls=null}return ok});
@@ -224,9 +239,9 @@ function tryHls(u,local,tok){
 function tryNative(u,tok){const w=waitPlaying(tok);V.onerror=()=>P.failNow?.({t:"This channel can't play here",m:'The browser could not open this stream. It may be offline, use a format browsers do not support, or block web playback.',d:'media error '+(V.error?.code||'')});
  V.src=u;V.play().catch(()=>{});if(P.vod&&P.vodStart)V.addEventListener('loadedmetadata',()=>{V.currentTime=P.vodStart},{once:true});return w}
 function tryTs(u,tok){const p=P.ts=mpegts.createPlayer({type:'mpegts',isLive:true,url:u},{enableStashBuffer:false,liveBufferLatencyChasing:false,autoCleanupSourceBuffer:true,autoCleanupMaxBackwardDuration:S.tsMin*60});
- p.on(mpegts.Events.ERROR,(t,d,info)=>P.failNow?.({t:t===mpegts.ErrorTypes.NETWORK_ERROR?'The provider blocks web playback':"This channel can't play here",m:t===mpegts.ErrorTypes.NETWORK_ERROR?"The stream server didn't allow this web page to load it (CORS), or it is offline.":'This stream format is not supported in this browser.',d:`${d} ${info?.msg||''}`}));
+ p.on(mpegts.Events.ERROR,(t,d,info)=>(netLog({step:'TS '+t+' '+d,status:info?.code,err:info?.msg,url:u}),P.failNow)?.({t:t===mpegts.ErrorTypes.NETWORK_ERROR?'The provider blocks web playback':"This channel can't play here",m:t===mpegts.ErrorTypes.NETWORK_ERROR?"The stream server didn't allow this web page to load it (CORS), or it is offline.":'This stream format is not supported in this browser.',d:`${d} ${info?.msg||''}`}));
  const w=waitPlaying(tok);p.attachMediaElement(V);p.load();V.play().catch(()=>{});return w.then(ok=>{if(!ok){try{p.destroy()}catch(e){}P.ts=null}return ok})}
-function setMode(m){P.mode=m;spin(false);$('#pMode').textContent={shift:'⏪ PAUSE & REWIND',buffer:'⏪ REWIND (buffer)',native:'NATIVE PLAYER',ts:'TS',vod:'ON DEMAND',rec:'RECORDING'}[m]||'';
+function setMode(m){P.mode=m;spin(false);P.wantShift=false;if(P.recAfter){P.recAfter=false;if(m==='shift')setTimeout(()=>$('#pRec').click(),300)}$('#pMode').textContent={shift:'⏪ PAUSE & REWIND',buffer:'⏪ REWIND (buffer)',native:'NATIVE PLAYER',ts:'TS',vod:'ON DEMAND',rec:'RECORDING'}[m]||'';
  $('#pMode').title={shift:`You can pause and rewind up to ${S.tsMin} minutes, back to when you started watching this channel.`,buffer:'This provider blocks segment access, so rewind is limited to what the browser keeps in memory.',native:"iPhone's built-in player: AirPlay works, but pause & rewind and recording are not available."}[m]||'';
  $('#pAir').hidden=!window.WebKitPlaybackTargetAvailabilityEvent;$('#pLive').hidden=!(P.live);tick()}
 /* scrubber */
@@ -265,6 +280,7 @@ $('#pMini').onclick=()=>{const m=$('#mini');if(!m.hidden){m.hidden=true;return}m
 /* ---------- recording ---------- */
 const recDur=r=>(r.tracks.main?.segs||[]).reduce((a,s)=>a+s.d,0);
 $('#pRec').onclick=()=>{if(P.recording){stopRecording();return}
+ if((P.mode==='buffer'||P.mode==='ts')&&hlsOK()&&!P.vod&&!P.wantShift){P.wantShift=true;P.recAfter=true;toast('Switching to pause & rewind mode to record…');playChannel(P.idx,P.list);return}
  if(P.mode!=='shift'||!P.rec){toast(P.mode==='native'?"Recording isn't available in the iPhone's built-in player (AirPlay mode).":"This channel can't be recorded in a browser: the provider doesn't allow web access to the stream segments (CORS). Use the CheeseTV Android app to record.",6000);return}
  const c=S.cur,np=nowProg(c);const R=P.recording={id:'r'+Date.now(),chan:c.name,logo:c.logo||'',title:np?np.t:c.name,start:Date.now(),inf:P.rec.inf,tracks:{}};
  // start from what's on screen now (the part already kept for rewind), then keep adding new segments
