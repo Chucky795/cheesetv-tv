@@ -1,0 +1,79 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CheeseTV · Your TV. Supercharged.</title><meta name="description" content="CheeseTV web player for iPhone and desktop: live TV guide, pause & rewind, recording. Blank player: add your own playlist.">
+<meta name="theme-color" content="#07080c"><link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png"><link rel="icon" href="/icons/favicon-32.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="CheeseTV">
+<link rel="stylesheet" href="/app.css?v=4"></head><body>
+
+<section id="signin" class="signin" hidden>
+ <div class="glow"></div><div class="streak s1"></div><div class="streak s2"></div>
+ <div class="si-card">
+  <img class="si-logo" src="/icons/icon-192.png" alt="">
+  <h1 class="wordmark">CHEESE<span>TV</span></h1>
+  <p class="tagline">YOUR TV. <span>SUPERCHARGED.</span></p>
+  <div class="seg" id="siSeg"><button data-t="xt" class="on">Sign in</button><button data-t="m3u">Use M3U link</button></div>
+  <form id="fXt" novalidate><label>Server URL<input name="server" type="text" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="provider.com:8080 or paste your M3U link" autocomplete="url"></label><label>Username<input name="user" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" autocomplete="username"></label><label>Password<input name="pass" type="password" enterkeyhint="go" autocomplete="current-password"></label><button class="btn gold">Sign in</button></form>
+  <form id="fM3u" hidden novalidate><label>Playlist name<input name="name" placeholder="My playlist"></label><label>Playlist URL<input name="url" type="text" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="https://..."></label><label>TV guide (XMLTV) URL, optional<input name="epg" type="text" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="https://..."></label><button class="btn gold">Add playlist</button></form>
+  <p id="siMsg" class="msg"></p>
+  <p class="fine">CheeseTV is a blank player: no channels are included. Your login is saved only on this device and never sent to CheeseTV. <a href="#" id="siWhy">Why do some channels only work in the apps?</a></p>
+  <button class="link" id="siCancel" hidden>Cancel</button>
+ </div>
+</section>
+
+<div id="shell" hidden>
+<header class="top">
+ <a class="brand" href="#" id="home"><img src="/icons/icon-192.png" alt=""><b class="wordmark sm">CHEESE<span>TV</span></b></a>
+ <nav class="tabs" id="tabs">
+  <button data-v="guide" class="on"><i>&#9638;</i><span>Guide</span></button>
+  <button data-v="chans"><i>&#128250;</i><span>Channels</span></button>
+  <button data-v="recs"><i class="rec-ic"></i><span>Recordings</span></button>
+  <button data-v="vod" id="tabVod" hidden><i>&#127916;</i><span>Movies &amp; Series</span></button>
+  <button data-v="search"><i>&#128269;</i><span>Search</span></button>
+ </nav>
+ <button class="ic" id="btnSettings" aria-label="Settings">&#9881;</button>
+</header>
+<main>
+ <section id="vGuide" class="view">
+  <div class="hero" id="hero"></div>
+  <div class="chips" id="groups"></div>
+  <div class="guide" id="guide"></div>
+ </section>
+ <section id="vChans" class="view" hidden><div class="chips" id="groups2"></div><div class="clist" id="clist"></div></section>
+ <section id="vRecs" class="view" hidden><h2 class="h">Recordings</h2><p class="sub" id="recInfo"></p><div id="recList" class="reclist"></div></section>
+ <section id="vVod" class="view" hidden><div class="seg sm" id="vodSeg"><button data-t="movie" class="on">Movies</button><button data-t="series">Series</button></div><div id="vodBody"></div></section>
+ <section id="vSearch" class="view" hidden><div class="search"><span>&#128269;</span><input id="q" placeholder="Search channels, shows, movies" autocomplete="off"></div><div id="sres"></div></section>
+</main>
+</div>
+
+<div id="player" class="player" hidden>
+ <video id="video" playsinline webkit-playsinline x-webkit-airplay="allow"></video>
+ <div class="wm"><img src="/icons/icon-192.png" alt=""><b class="wordmark sm">CHEESE<span>TV</span></b></div>
+ <div class="pspin" id="pSpin"><i></i></div>
+ <div class="osd" id="osd">
+  <div class="otop"><button class="ic" id="pBack" aria-label="Back">&#8592;</button><div class="ochan"><div class="ologo" id="pLogo"></div><div><b id="pName"></b><small id="pNow"></small></div></div><span class="recbadge" id="pRecBadge" hidden>&#9679; REC <em id="pRecT">0:00</em></span><span class="modebadge" id="pMode"></span></div>
+  <div class="obot">
+   <div class="otime"><span id="pPos">--:--</span><div class="scrub" id="scrub"><div class="sbuf" id="sBuf"></div><div class="sfill" id="sFill"></div><div class="sknob" id="sKnob"></div></div><button class="live" id="pLive">LIVE</button></div>
+   <div class="octl">
+    <button class="cb" id="pChDn" title="Channel down">CH&#9660;</button>
+    <button class="cb" id="pRw" title="Back 10 seconds">&#8634;<small>10</small></button>
+    <button class="cb big" id="pPlay" title="Play/Pause">&#10074;&#10074;</button>
+    <button class="cb" id="pFf" title="Forward 10 seconds">&#8635;<small>10</small></button>
+    <button class="cb" id="pChUp" title="Channel up">CH&#9650;</button>
+    <span class="sp"></span>
+    <button class="cb rec" id="pRec" title="Record"><i></i><span>Record</span></button>
+    <button class="cb" id="pMini" title="Mini guide">&#9638;<span>Guide</span></button>
+    <button class="cb" id="pAir" title="AirPlay" hidden>&#9651;<span>AirPlay</span></button>
+    <button class="cb" id="pFs" title="Full screen">&#9974;</button>
+   </div>
+  </div>
+ </div>
+ <aside class="mini" id="mini" hidden><div class="shd"><h4 style="flex:1;margin:0">Mini guide</h4><button class="ic" id="miniX" aria-label="Close guide">&#10005;</button></div><div id="miniList"></div></aside>
+ <div id="pErr" class="perr" hidden></div>
+</div>
+
+<div id="sheet" class="sheet" hidden><div class="card" id="sheetCard"></div></div>
+<div id="toast" class="toast" hidden></div>
+<script src="/vendor/hls.min.js" defer></script><script src="/vendor/mpegts.js" defer></script><script src="/app.js?v=4" defer></script>
+</body></html>
