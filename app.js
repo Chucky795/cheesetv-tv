@@ -175,7 +175,7 @@ function teardown(){stopRecording(true);try{P.hls&&P.hls.destroy()}catch(e){}try
  V.onerror=V.onplaying=null;V.removeAttribute('src');V.load()}
 function spin(on){$('#pSpin').classList.toggle('on',!!on);if(!on)status('')}
 function status(t){let e=$('#pSpinT');if(!e){e=document.createElement('b');e.id='pSpinT';e.className='pspin-t';$('#pSpin').appendChild(e);const b=document.createElement('button');b.id='pSpinB';b.className='pspin-b';b.textContent='Details';const d=document.createElement('pre');d.id='pSpinD';d.className='pspin-d';d.hidden=true;b.onclick=ev=>{ev.stopPropagation();d.hidden=!d.hidden;d.textContent=netTxt()};$('#pSpin').append(b,d)}e.textContent=t;$('#pSpinB').hidden=!t}
-function showErr(title,msg,detail){spin(false);$('#pErr').innerHTML=`<h4>${esc(title)}</h4><p>${esc(msg)}</p>${detail?`<button class="pspin-b" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Details</button><p class="d" hidden>${esc(detail)}</p>`:''}<p class="note">Channels that won't play in a browser usually still work in the CheeseTV ${IOS?'iPhone app (coming soon to the App Store)':'Android / Google TV app'} or on Roku.</p><div class="row"><button class="btn dark" id="eRetry">Try again</button><a class="btn gold" href="https://watchcheesetv.com/#devices">Get the app</a></div>`;
+function showErr(title,msg,detail){spin(false);$('#pErr').innerHTML=`<h4>${esc(title)}</h4><p>${esc(msg)}</p>${detail?`<button class="pspin-b" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Details</button><p class="d" hidden>${esc(detail)}</p>`:''}<p class="note">Channels that won't play in a browser usually still work in the CheeseTV ${IOS?'iPhone app (coming soon to the App Store)':'Android / Google TV app'} or on Roku.</p><div class="row"><button class="btn dark" id="eRetry">Try again</button><a class="btn gold" href="${APP_URL}"${ANDROID?'':' target="_blank" rel="noopener"'}>Get the app</a></div>`;
  $('#pErr').hidden=false;$('#eRetry').onclick=()=>P.vod?playVod(P.vod):playChannel(P.idx,P.list)}
 function openPlayer(){$('#player').hidden=false;$('#pErr').hidden=true;$('#mini').hidden=true;osdShow();if(!$('#player').dataset.k){$('#player').dataset.k=1}}
 function playChannel(i,list){
@@ -231,7 +231,7 @@ async function start(urls,live){
   status('Opening stream…');if(await tryNative(u,tok))return setMode(live?'native':'vod');lastErr=P.lastErr||lastErr;
  }
  if(tok===P.token){if(Date.now()-T0>=DEADLINE)lastErr=lastErr||{t:'The channel is taking too long',m:"No stream format started within a minute. The channel may be offline, your provider may allow only one connection at a time (close other apps using your login), or it blocks web browsers.",d:'timeout'};
-  teardown();const e=lastErr||{};showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",[e.d,P.net&&netTxt().replace(/\n/g,' · ')].filter(Boolean).join(' · '))}
+  teardown();const e=lastErr||{};if(P.vod?.fmt?.label)e.m=(e.m||'')+` Detected format: ${P.vod.fmt.label}.`;showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",[e.d,P.net&&netTxt().replace(/\n/g,' · ')].filter(Boolean).join(' · '))}
 }
 function waitPlaying(tok,ms=14000){return new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;clearTimeout(t);V.removeEventListener('playing',ok);res(v)}};const ok=()=>fin(true);
  V.addEventListener('playing',ok);const t=setTimeout(()=>{P.lastErr={t:'The channel is taking too long',m:"The stream didn't start within 14 seconds. The channel may be offline, or the provider blocks web browsers.",d:'timeout'};fin(false)},ms);P.failNow=e=>{P.lastErr=e;fin(false)};
@@ -334,19 +334,43 @@ async function renderVod(){const B=$('#vodBody');B.innerHTML=Array(3).fill('<div
  B.innerHTML=rows.length?rows.map(([g,l])=>`<div class="vrow"><h3>${esc(g)}</h3><div class="vscroll">${l.slice(0,60).map(posterCard).join('')}</div></div>`).join(''):`<p class="empty">No ${S.vodType==='movie'?'movies':'series'} from this provider.</p>`;
  $$('#vodBody .poster').forEach(b=>b.onclick=()=>openDetail(items.find(v=>v.key===b.dataset.k)))}
 $$('#vodSeg button').forEach(b=>b.onclick=()=>{$$('#vodSeg button').forEach(x=>x.classList.toggle('on',x===b));S.vodType=b.dataset.t;renderVod()});
+
+/* web playability from provider metadata (get_vod_info / episode info) */
+const ANDROID=/Android/i.test(navigator.userAgent),APP_URL=ANDROID?'https://watchcheesetv.com/cheesetv-player.apk':'https://watchcheesetv.com/#devices';
+function webFmt(inf,ext){inf=inf||{};const v=inf.video||{},a=inf.audio||{},vc=String(v.codec_name||'').toLowerCase().replace(/^(png|mjpeg|bmp|gif|jpeg)$/,''),ac=String(a.codec_name||'').toLowerCase(),pr=String(v.profile||''),pf=String(v.pix_fmt||'');
+ if(!vc&&!ac)return null;const MS=window.MediaSource||window.ManagedMediaSource,el=document.createElement('video');
+ const can=t=>{try{return !!(MS&&MS.isTypeSupported(t))||el.canPlayType(t)==='probably'}catch(e){return false}};
+ const bad=[];let label=[vc.toUpperCase()||'?',ac.toUpperCase()||'?'].join(' / ');
+ if(/hevc|h265/.test(vc)&&!can('video/mp4; codecs="hvc1.1.6.L120.90"')&&!can('video/mp4; codecs="hev1.1.6.L120.90"'))bad.push('HEVC');
+ if(/h264|avc/.test(vc)&&(/10|4:2:2|4:4:4/.test(pr)||/10le|422|444/.test(pf)))bad.push('10-bit H.264');
+ if(vc&&!/hevc|h265|h264|avc|vp8|vp9|av1/.test(vc))bad.push(vc.toUpperCase());
+ if(/^e?ac-?3$/.test(ac)&&!can('audio/mp4; codecs="'+(ac.startsWith('e')?'ec-3':'ac-3')+'"'))bad.push('Dolby audio');
+ if(/dts|truehd|mlp/.test(ac))bad.push('DTS/TrueHD audio');
+ if(/^(avi|wmv|flv)$/i.test(ext||''))bad.push(String(ext).toUpperCase());
+ return {ok:!bad.length,bad,label:label+(ext?` · ${String(ext).toUpperCase()}`:'')}}
+const titleKey=n=>String(n||'').replace(/^[A-Z0-9+]{1,4}\s*-\s*/i,'').replace(/\s+/g,' ').trim().toLowerCase();
+const APP_ONLY='<span class="apponly" title="This format can\'t play in a web browser">App only</span>';
+function fmtBlockErr(v){const f=v.fmt;const w=f.bad.join(' / ');
+ showErr(`This movie's format (${w}) can't play in a web browser`,`Watch it in the CheeseTV app. Detected format: ${f.label}.`,'');
+ if(v.alts?.length){const box=document.createElement('div');box.className='alts';box.innerHTML='<p><b>Try this version instead:</b></p>'+v.alts.map((a,i)=>`<button class="btn gold" data-i="${i}">&#9654; ${esc(a.name)} <small>(${esc(a.fmt.label)})</small></button>`).join('');
+  $('#pErr .row')?.before(box);box.querySelectorAll('button').forEach(b=>b.onclick=()=>playVod(v.alts[+b.dataset.i]))}}
+async function findAlts(v){const p=pl();if(!S.vod||v.type!=='movie')return [];const k=titleKey(v.name),c=S.vod.movie.filter(x=>x.id!==v.id&&titleKey(x.name)===k).slice(0,4),B=`${xb(p)}/player_api.php?${xq(p)}`,out=[];
+ for(const x of c){try{const inf=(await getJSON(`${B}&action=get_vod_info&vod_id=${x.id}`,'Xtream server')).info||{},f=webFmt(inf,x.ext);if(f&&f.ok)out.push({...x,fmt:f,url:`${xb(p)}/movie/${xp(p)}/${x.id}.${x.ext}`})}catch(e){}await sleep(400)}return out}
 async function openDetail(v){const p=pl(),B=`${xb(p)}/player_api.php?${xq(p)}`;sheet('<div class="sk" style="height:220px"></div>');let info={},eps=null;
  try{if(v.type==='movie'){info=(await getJSON(`${B}&action=get_vod_info&vod_id=${v.id}`,'Xtream server')).info||{}}else{const r=await getJSON(`${B}&action=get_series_info&series_id=${v.id}`,'Xtream server');info=r.info||{};eps=r.episodes||{}}}catch(e){}
+ const fm=v.type==='movie'?webFmt(info,v.ext):null;v.fmt=fm;
  const res=S.resume[v.key],plot=info.plot||info.description||v.plot||'',rating=info.rating||v.rating,yr=(info.releasedate||info.releaseDate||'').slice(0,4);
- let h=`<div class="shd"><h3>${esc(v.name)}</h3><button class="ic" onclick="closeSheet()">&#10005;</button></div><div class="det"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}"></div><div><div class="meta">${[rating&&`★ ${esc(rating)}`,yr,info.genre&&esc(info.genre),info.duration&&esc(info.duration)].filter(Boolean).join(' · ')}</div><p>${esc(plot)||'No description.'}</p>`;
+ let h=`<div class="shd"><h3>${esc(v.name)}</h3><button class="ic" onclick="closeSheet()">&#10005;</button></div><div class="det"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}"></div><div><div class="meta">${[rating&&`★ ${esc(rating)}`,yr,info.genre&&esc(info.genre),info.duration&&esc(info.duration)].filter(Boolean).join(' · ')}${fm&&!fm.ok?' '+APP_ONLY:''}</div>${fm&&!fm.ok?`<p class="note">This movie's format (${esc(fm.bad.join(' / '))}) can't play in a web browser. Watch it in the CheeseTV app.</p>`:''}<p>${esc(plot)||'No description.'}</p>`;
  if(v.type==='movie')h+=`<button class="btn gold" id="dPlay" style="width:auto">&#9654; ${res?'Resume '+fmt(res.t):'Play'}</button>${res?' <button class="btn dark" id="dStart" style="width:auto">From start</button>':''}`;
  h+='</div></div>';
  if(eps){const ss=Object.keys(eps).sort((a,b)=>a-b);h+=`<div class="chips" style="padding:12px 0 6px" id="dSeas">${ss.map((s,i)=>`<button class="${i?'':'on'}" data-s="${esc(s)}">Season ${esc(s)}</button>`).join('')}</div><div class="eps" id="dEps"></div>`}
  sheet(h);
- if(v.type==='movie'){$('#dPlay').onclick=()=>{closeSheet();playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},res?.t)};$('#dStart')&&($('#dStart').onclick=()=>{closeSheet();playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},0)})}
- if(eps){const show=s=>{$('#dEps').innerHTML=(eps[s]||[]).map(e=>{const k='e'+v.id+':'+e.id,r=S.resume[k];return `<div class="ep" data-id="${esc(e.id)}"><div><b>${esc(e.episode_num)}. ${esc(e.title)}</b>${r?`<div class="pbar" style="width:160px"><i style="width:${Math.min(100,r.t/r.d*100)}%"></i></div>`:''}</div><span style="color:var(--gold)">${r?'Resume':'&#9654;'}</span></div>`}).join('')||'<p class="note">No episodes.</p>';
-   $$('#dEps .ep').forEach(el=>el.onclick=()=>{const e=eps[s].find(x=>String(x.id)===el.dataset.id),k='e'+v.id+':'+e.id;closeSheet();playVod({type:'ep',name:`${v.name} · S${s}E${e.episode_num}`,img:v.img,key:k,url:`${xb(p)}/series/${xp(p)}/${e.id}.${e.container_extension||'mp4'}`},S.resume[k]?.t)})};
+ if(v.type==='movie'){$('#dPlay').onclick=async()=>{closeSheet();if(fm&&!fm.ok){const vv={...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`};playVod(vv);vv.alts=await findAlts(v);if(P.vod===vv&&vv.alts.length)fmtBlockErr(vv);return}playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},res?.t)};$('#dStart')&&($('#dStart').onclick=()=>{closeSheet();playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},0)})}
+ if(eps){const show=s=>{$('#dEps').innerHTML=(eps[s]||[]).map(e=>{const k='e'+v.id+':'+e.id,r=S.resume[k],ef=webFmt(e.info,e.container_extension);return `<div class="ep" data-id="${esc(e.id)}"><div><b>${esc(e.episode_num)}. ${esc(e.title)}</b>${ef&&!ef.ok?' '+APP_ONLY:''}${r?`<div class="pbar" style="width:160px"><i style="width:${Math.min(100,r.t/r.d*100)}%"></i></div>`:''}</div><span style="color:var(--gold)">${r?'Resume':'&#9654;'}</span></div>`}).join('')||'<p class="note">No episodes.</p>';
+   $$('#dEps .ep').forEach(el=>el.onclick=()=>{const e=eps[s].find(x=>String(x.id)===el.dataset.id),k='e'+v.id+':'+e.id;closeSheet();playVod({type:'ep',fmt:webFmt(e.info,e.container_extension),name:`${v.name} · S${s}E${e.episode_num}`,img:v.img,key:k,url:`${xb(p)}/series/${xp(p)}/${e.id}.${e.container_extension||'mp4'}`},S.resume[k]?.t)})};
   $$('#dSeas button').forEach(b=>b.onclick=()=>{$$('#dSeas button').forEach(x=>x.classList.toggle('on',x===b));show(b.dataset.s)});show(Object.keys(eps).sort((a,b)=>a-b)[0])}}
 function playVod(v,at){P.vod=v;P.list=[];P.vodStart=at||0;openPlayer();$('#pName').textContent=v.name;$('#pNow').textContent=v.type==='movie'?'Movie':'Series';
+ if(v.fmt&&!v.fmt.ok){++P.token;teardown();$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;fmtBlockErr(v);return}
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;
  const urls=[v.url];start(urls,false).then(()=>{if(at&&P.hls)V.currentTime=at})}
 
