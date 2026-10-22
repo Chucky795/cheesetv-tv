@@ -420,6 +420,6 @@ $('#fM3u').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),m=$('#
   let n;try{n=normXt(url,'','')}catch(x){m.className='msg e';m.textContent=x.message;return}addPl({type:'xt',name:new URL(n.server).hostname,server:n.server,user:n.user,pass:n.pass},e.target);return}
  addPl({type:'m3u',name:(f.get('name')||'').trim()||'My playlist',url,epg:(f.get('epg')||'').trim()},e.target)};
 setInterval(()=>{if(!$('#shell').hidden&&$('#player').hidden&&S.view==='guide')renderGuide();updNow()},60000);
-if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(()=>{});
-navigator.storage?.persist?.().catch(()=>{});
-sweep();loadActive();
+try{if('serviceWorker' in navigator)navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});if(window.caches)caches.keys().then(k=>k.forEach(x=>caches.delete(x))).catch(()=>{})}catch(e){}
+try{if(window.isSecureContext)navigator.storage?.persist?.().catch(()=>{})}catch(e){}
+try{sweep();loadActive()}catch(e){console.error(e);try{$('#shell').hidden=true;$('#player').hidden=true;$('#signin').hidden=false;const m=$('#siMsg');if(m){m.className='msg e';m.textContent='Something went wrong loading your saved playlist. Please sign in again.'}}catch(_){}}
