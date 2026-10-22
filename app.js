@@ -386,6 +386,7 @@ $('#pFavHint')&&0;
 function sheet(h){$('#sheetCard').innerHTML=h;$('#sheet').hidden=false}function closeSheet(){$('#sheet').hidden=true}
 $('#sheet').onclick=e=>{if(e.target.id==='sheet')closeSheet()};
 function openSettings(){sheet(`<div class="shd"><h3>Settings</h3><button class="ic" onclick="closeSheet()">&#10005;</button></div>
+ <div class="vpn-set"><b>Buffering a lot?</b> Your internet provider may be slowing streams. Turn on a free VPN like Proton VPN, then reload. <a href="https://protonvpn.com/download" target="_blank" rel="noopener">Get Proton VPN</a></div>
  <h4 style="margin:6px 0 8px">Playlists</h4>${S.pls.map(p=>`<div class="pl ${p.id===pl()?.id?'on':''}"><b>${esc(p.name)}</b><small style="color:var(--mut)">${p.type==='xt'?'Xtream':'M3U'}</small><button data-a="use" data-id="${p.id}">Use</button><button data-a="del" data-id="${p.id}">Remove</button></div>`).join('')}
  <button class="btn gold" id="stAdd" style="margin:6px 0 16px">+ Add playlist / sign in</button>
  <h4 style="margin:6px 0 8px">Pause &amp; rewind length</h4><div class="seg" id="stTs">${[30,60,90].map(m=>`<button data-m="${m}" class="${S.tsMin===m?'on':''}">${m} min</button>`).join('')}</div>
@@ -463,3 +464,12 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
  let d=$('#goHttp');if(!d){d=document.createElement('div');d.id='goHttp';d.className='hu-back';document.body.appendChild(d)}
  d.innerHTML=`<div class="hu-card" role="status"><div class="hu-ico">🧀</div><h3>Opening CheeseTV…</h3><p>Your browser may show a notice next. Tap <b>Continue to site</b>.</p><div class="pspin on" style="position:static;opacity:1;margin:8px auto"><i></i></div><p class="fine"><a id="goNow" href="${esc(url)}" style="color:#ffd76a">Go now</a></p></div>`;d.hidden=false;
  clearTimeout(goHttp.t);goHttp.t=setTimeout(()=>location.href=url,2000)}
+
+/* buffering tip: link only, no VPN built in */
+(()=>{const st=[];let ws=0,shown=false,tm=null;
+ const show=()=>{if(shown||sessionStorage.getItem('ctvVpnNo')||$('#player').hidden)return;shown=true;let d=$('#vpnTip');
+  if(!d){d=document.createElement('div');d.id='vpnTip';d.className='vpn-tip';d.setAttribute('role','status');d.innerHTML='<p><b>Buffering a lot?</b> Your internet provider may be slowing streams. Turn on a free VPN like Proton VPN, then reload.</p><div class="row"><a class="btn gold" href="https://protonvpn.com/download" target="_blank" rel="noopener">Get Proton VPN</a><button class="btn dark" id="vpnNo">Not now</button></div>';
+   $('#player').appendChild(d);$('#vpnNo').onclick=e=>{e.stopPropagation();sessionStorage.setItem('ctvVpnNo','1');d.hidden=true}}d.hidden=false};
+ V.addEventListener('waiting',()=>{if(!P.mode)return;const n=Date.now();ws=n;st.push(n);while(st.length&&n-st[0]>60000)st.shift();if(st.length>2)show();clearTimeout(tm);tm=setTimeout(()=>{if(ws&&V.readyState<3)show()},5000)});
+ V.addEventListener('playing',()=>{ws=0;clearTimeout(tm)});
+})();
