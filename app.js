@@ -18,9 +18,10 @@ function toast(t,ms=3200){const e=$('#toast');e.textContent=t;e.hidden=false;cle
 
 /* ---------- network (direct from the viewer's browser; no proxy) ---------- */
 const WHY="Browsers have security rules that apps don't. A secure page (https) can't load http:// links (\"mixed content\"), and the provider's server must allow web access (CORS). Many IPTV providers only offer http or block browsers. Those channels still work in the CheeseTV Android / Google TV app, on Roku, and in the upcoming CheeseTV iPhone app.";
-async function getText(url,what,o,ms=15000,sig){
+async function getText(url,what,o,ms=15000,sig){try{return await getText1(url,what,o,ms,sig)}catch(e){if(sig?.aborted||!e.retry)throw e.err||e;await new Promise(r=>setTimeout(r,1500));return getText1(url,what,o,ms,sig).catch(x=>{throw x.err||x})}}
+async function getText1(url,what,o,ms=15000,sig){
  if(isMixed(url))throw new Error(`This ${what} link uses http:// (not secure). Web browsers (Safari and Chrome) block http links on secure websites, so the CheeseTV web app can't load it. ${APPS}`);
- let r;const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),ms);sig?.addEventListener('abort',()=>ac.abort());try{r=await fetch(url,{cache:'no-store',signal:ac.signal});if(r.ok){const tx=await r.text();if(o)o.url=r.url||url;return tx}}catch(e){if(ac.signal.aborted&&!sig?.aborted)throw new Error(`The ${what} didn't answer within ${ms/1000} seconds.`);throw new Error(`Couldn't reach the ${what}. The server is offline, or it blocks web browsers (CORS). The CheeseTV Android/Roku app can still load it.`)}finally{clearTimeout(tm)}
+ let r;const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),ms);sig?.addEventListener('abort',()=>ac.abort());try{r=await fetch(url,{cache:'no-store',signal:ac.signal});if(r.ok){const tx=await r.text();if(o)o.url=r.url||url;return tx}}catch(e){if(ac.signal.aborted&&!sig?.aborted)throw new Error(`The ${what} didn't answer within ${ms/1000} seconds.`);throw {retry:!sig?.aborted,err:new Error(`Couldn't reach the ${what}. The server is offline, or it blocks web browsers (CORS). The CheeseTV Android/Roku app can still load it.`)}}finally{clearTimeout(tm)}
  if(!r.ok)throw new Error(`The ${what} server answered with error ${r.status}.`);if(o)o.url=r.url||url;return r.text();
 }
 const getJSON=async(u,w)=>{const t=await getText(u,w);try{return JSON.parse(t)}catch(e){throw new Error(`The ${w} sent something that isn't valid data.`)}};
@@ -34,8 +35,9 @@ function parseM3U(t){
  return {chans:out,epg};
 }
 const xb=p=>p.server.replace(/\/+$/,''),xq=p=>`username=${encodeURIComponent(p.user)}&password=${encodeURIComponent(p.pass)}`,xp=p=>`${encodeURIComponent(p.user)}/${encodeURIComponent(p.pass)}`;
+let XTI=null; // reuse the sign-in answer: some providers reject the same request repeated within ~1s (404, no CORS)
 async function loadXtream(p){
- const info=await getJSON(`${xb(p)}/player_api.php?${xq(p)}`,'Xtream server');
+ const ck=p.server+'|'+p.user;const info=XTI&&XTI.k===ck&&Date.now()-XTI.t<60000?XTI.j:await getJSON(`${xb(p)}/player_api.php?${xq(p)}`,'Xtream server');XTI=null;
  if(!info.user_info||String(info.user_info.auth)!=='1')throw new Error('Sign in failed. Check the server URL, username and password.');
  const fm=info.user_info.allowed_output_formats||[];p.fmt=fm.includes('m3u8')||!fm.length?'m3u8':'ts';
  const [cats,streams]=await Promise.all([getJSON(`${xb(p)}/player_api.php?${xq(p)}&action=get_live_categories`,'Xtream server'),getJSON(`${xb(p)}/player_api.php?${xq(p)}&action=get_live_streams`,'Xtream server')]);
@@ -404,7 +406,7 @@ async function xtResolve(p){
  if(pageHttps&&/^http:/i.test(p.server)){const u=new URL(p.server),https='https://'+u.host+u.pathname.replace(/\/+$/,'');
   try{await xtProbe(https,p.user,p.pass);p.server=https;return}catch(e){if(e.k==='auth')throw new Error(e.m)}
   throw new Error(`Your provider's server uses http:// (not secure), and it doesn't support https://. Web browsers (Safari and Chrome) block http connections from secure websites, so the CheeseTV web app can't sign in to this provider. This is a browser rule, not a problem with your login. ${APPS}`)}
- try{await xtProbe(p.server,p.user,p.pass)}catch(e){throw new Error(e.m||String(e))}}
+ try{XTI={k:p.server+'|'+p.user,t:Date.now(),j:await xtProbe(p.server,p.user,p.pass)}}catch(e){throw new Error(e.m||String(e))}}
 async function addPl(p,form){const m=$('#siMsg'),btn=form.querySelector('.btn'),bt=btn.textContent;m.className='msg';m.textContent='';btn.textContent='Signing in…';btn.disabled=true;
  const fail=t=>{m.className='msg e';m.textContent=t;if(location.protocol==='https:'&&/uses http:\/\//.test(t)){const a=document.createElement('a');a.className='btn gold';a.id='btnHttpCopy';a.href=HTTP_COPY;a.onclick=ev=>{ev.preventDefault();headsUp(HTTP_COPY)};a.style.marginTop='12px';a.textContent='Open CheeseTV for http providers';m.appendChild(a);
   const n=document.createElement('p');n.className='fine';n.textContent="It opens a non-secure (http) copy of this player that can connect to http providers. You'll sign in again there.";m.appendChild(n)}m.scrollIntoView({block:'center',behavior:'smooth'})};
