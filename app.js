@@ -410,7 +410,7 @@ async function xtResolve(p){
 async function addPl(p,form){const m=$('#siMsg'),btn=form.querySelector('.btn'),bt=btn.textContent;m.className='msg';m.textContent='';btn.textContent='Signing in…';btn.disabled=true;
  const fail=t=>{m.className='msg e';m.textContent=t;if(location.protocol==='https:'&&/uses http:\/\//.test(t)){const a=document.createElement('a');a.className='btn gold';a.id='btnHttpCopy';a.href=HTTP_COPY;a.onclick=ev=>{ev.preventDefault();headsUp(HTTP_COPY)};a.style.marginTop='12px';a.textContent='Open CheeseTV for http providers';m.appendChild(a);
   const n=document.createElement('p');n.className='fine';n.textContent="It opens a non-secure (http) copy of this player that can connect to http providers. You'll sign in again there.";m.appendChild(n)}m.scrollIntoView({block:'center',behavior:'smooth'})};
- try{if(p.type==='xt'){await xtResolve(p);await loadXtream(p)}else{if(isMixed(p.url)){const h='https://'+p.url.slice(7);try{parseM3U(await getText(h,'playlist'));p.url=h}catch(e){}}parseM3U(await getText(p.url,'playlist'))}}catch(e){fail(e.message||String(e));return}finally{btn.textContent=bt;btn.disabled=false}
+ try{if(p.type==='xt'){await xtResolve(p);await loadXtream(p)}else{if(isMixed(p.url)){const h='https://'+p.url.slice(7);try{parseM3U(await getText(h,'playlist'));p.url=h}catch(e){}}parseM3U(await getText(p.url,'playlist'))}}catch(e){const t=e.message||String(e);if(HTTP_COPY&&location.protocol==='https:'&&/uses http:\/\//.test(t)){btn.textContent=bt;btn.disabled=false;goHttp(p);return}fail(t);return}finally{btn.textContent=bt;btn.disabled=false}
  form.reset();p.id='p'+Date.now();S.pls.push(p);S.active=p.id;S.group='All';S.view='guide';save();loadActive()}
 $('#fXt').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target),m=$('#siMsg');let n;
  try{n=normXt(f.get('server'),f.get('user'),f.get('pass'))}catch(x){m.className='msg e';m.textContent=x.message;return}
@@ -426,7 +426,16 @@ setInterval(()=>{if(!$('#shell').hidden&&$('#player').hidden&&S.view==='guide')r
 try{if('serviceWorker' in navigator)navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});if(window.caches)caches.keys().then(k=>k.forEach(x=>caches.delete(x))).catch(()=>{})}catch(e){}
 try{if(window.isSecureContext)navigator.storage?.persist?.().catch(()=>{})}catch(e){}
 try{sweep();loadActive()}catch(e){console.error(e);try{$('#shell').hidden=true;$('#player').hidden=true;$('#signin').hidden=false;const m=$('#siMsg');if(m){m.className='msg e';m.textContent='Something went wrong loading your saved playlist. Please sign in again.'}}catch(_){}}
+(()=>{const q=new URLSearchParams(location.search),sv=q.get('server'),us=q.get('user');if(!sv&&!us)return;
+ try{const F=$('#fXt').elements;$$('#siSeg button').forEach(b=>b.dataset.t==='xt'&&b.click());if(sv)F.server.value=sv;if(us)F.user.value=us;setTimeout(()=>F.pass.focus(),300);
+  const m=$('#siMsg');m.className='msg';m.textContent='Enter your password to finish signing in.'}catch(e){}
+ q.delete('server');q.delete('user');history.replaceState(null,'',location.pathname+(q.toString()?'?'+q:'')+location.hash)})();
 
 function headsUp(url){let d=$('#headsUp');if(!d){d=document.createElement('div');d.id='headsUp';d.className='hu-back';d.innerHTML=`<div class="hu-card" role="dialog" aria-modal="true" aria-labelledby="huT"><div class="hu-ico">🧀</div><h3 id="huT">Quick heads-up</h3><p>Your browser will show a <b>“doesn't support a secure connection”</b> notice next. That's normal for TV providers. Just tap <b>Continue to site</b>.</p><p class="fine">Your provider uses http, so the CheeseTV player has to as well. You only sign in to your own provider there.</p><div class="row"><button class="btn dark" id="huNo">Cancel</button><button class="btn gold" id="huGo">Continue</button></div></div>`;document.body.appendChild(d);
  d.addEventListener('click',e=>{if(e.target===d)d.hidden=true});$('#huNo').onclick=()=>d.hidden=true}
  $('#huGo').onclick=()=>{d.hidden=true;location.href=url};d.hidden=false;$('#huGo').focus()}
+
+function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchParams({server:p.server.replace(/^https:/i,'http:'),user:p.user});url+='?'+q}
+ let d=$('#goHttp');if(!d){d=document.createElement('div');d.id='goHttp';d.className='hu-back';document.body.appendChild(d)}
+ d.innerHTML=`<div class="hu-card" role="status"><div class="hu-ico">🧀</div><h3>Opening CheeseTV…</h3><p>Your browser may show a notice next. Tap <b>Continue to site</b>.</p><div class="pspin on" style="position:static;opacity:1;margin:8px auto"><i></i></div><p class="fine"><a id="goNow" href="${esc(url)}" style="color:#ffd76a">Go now</a></p></div>`;d.hidden=false;
+ clearTimeout(goHttp.t);goHttp.t=setTimeout(()=>location.href=url,2000)}
