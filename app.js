@@ -194,9 +194,12 @@ const netTxt=()=>{const n=P.net;if(!n)return 'No network errors yet.';return [`$
 async function start(urls,live){
  const tok=++P.token;teardown();spin(true);$('#pErr').hidden=true;P.live=live;P.net=null;
  const T0=Date.now(),DEADLINE=60000,fresh=()=>tok===P.token&&Date.now()-T0<DEADLINE;status('Connecting…');let lastErr=null;
- const hlsU=urls.filter(u=>kind(u)!=='ts'),tsU=urls.filter(u=>kind(u)==='ts'||kind(u)==='unknown');
  // 1) simplest first: plain hls.js (or native HLS), 2) direct .ts via mpegts.js, 3) native <video>. Pause & rewind (local segment store) only when the user wants it.
  const steps=[];
+ // movies/series files (mp4/mkv/…): plain <video src>, no crossOrigin, so no CORS or preflight is needed
+ const files=urls.filter(u=>kind(u)==='file');if(files.length&&!live){V.removeAttribute('crossorigin');files.forEach(u=>steps.push(['file',u]))}
+ const rest=urls.filter(u=>kind(u)!=='file');if(files.length&&!live)urls=rest;
+ const hlsU=urls.filter(u=>kind(u)!=='ts'),tsU=urls.filter(u=>kind(u)==='ts'||kind(u)==='unknown');
  if(live&&P.wantShift&&hlsOK())hlsU.forEach(u=>steps.push(['shift',u]));
  // Direct .ts first where MSE exists (Android/desktop): Xtream frees a .ts connection within seconds, while an HLS session holds the 1-connection slot for ~1 minute.
  if(live&&!P.wantShift&&!P.forceNative&&window.mpegts&&mpegts.getFeatureList().mseLivePlayback)tsU.forEach(u=>steps.push(['ts',u]));
@@ -220,6 +223,11 @@ async function start(urls,live){
   if(how==='ts'){status(busy?`Waiting for your provider to free your connection… (${busy})`:'Starting stream…');if(await tryTs(u,tok))return setMode('ts');lastErr=P.lastErr||lastErr;
    // quick refusal = the provider's 1-connection slot is still held (error 458 / 407); wait and retry the same stream
    if(Date.now()-ta<4000&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'busy (458/407)'};await sleep(3000);si--;}continue}
+  if(how==='file'){status('Opening movie…');if(await tryNative(u,tok,30000))return setMode('vod');lastErr=P.lastErr||lastErr;
+   if(Date.now()-ta<4000&&busy<8&&fresh()){busy++;status(`Waiting for your provider to free your connection… (${busy})`);teardown();await sleep(3000);si--;continue} // quick refusal: 1-connection slot still held
+   const fmt=/media error 3/.test(lastErr?.d||'');
+   lastErr=fmt?{t:"This movie's format can't play in a browser",m:"This file uses a video format (for example HEVC/H.265 10-bit) that this browser can't play. Use the CheeseTV Android / Google TV app or Roku, or pick another version of this title (MP4) if your provider lists one.",d:lastErr?.d}
+    :{t:"This movie couldn't start",m:"Your provider allows 1 connection at a time, so close other devices using your login, wait a minute and try again. If it still fails, this file's format (for example MKV or HEVC/H.265) can't play in a browser: use the CheeseTV Android / Google TV app or Roku, or pick the MP4 version if your provider lists one.",d:lastErr?.d};continue}
   status('Opening stream…');if(await tryNative(u,tok))return setMode(live?'native':'vod');lastErr=P.lastErr||lastErr;
  }
  if(tok===P.token){if(Date.now()-T0>=DEADLINE)lastErr=lastErr||{t:'The channel is taking too long',m:"No stream format started within a minute. The channel may be offline, your provider may allow only one connection at a time (close other apps using your login), or it blocks web browsers.",d:'timeout'};
@@ -236,7 +244,7 @@ function tryHls(u,local,tok,live){
  const w=waitPlaying(tok);h.loadSource(u);h.attachMedia(V);h.on(Hls.Events.MANIFEST_PARSED,()=>V.play().catch(()=>{}));
  return w.then(ok=>{if(!ok){try{h.destroy()}catch(e){}if(P.hls===h)P.hls=null}return ok});
 }
-function tryNative(u,tok){const w=waitPlaying(tok);V.onerror=()=>P.failNow?.({t:"This channel can't play here",m:'The browser could not open this stream. It may be offline, use a format browsers do not support, or block web playback.',d:'media error '+(V.error?.code||'')});
+function tryNative(u,tok,ms){const w=waitPlaying(tok,ms);V.onerror=()=>P.failNow?.({t:"This channel can't play here",m:'The browser could not open this stream. It may be offline, use a format browsers do not support, or block web playback.',d:'media error '+(V.error?.code||'')});
  V.src=u;V.play().catch(()=>{});if(P.vod&&P.vodStart)V.addEventListener('loadedmetadata',()=>{V.currentTime=P.vodStart},{once:true});return w}
 function tryTs(u,tok){const p=P.ts=mpegts.createPlayer({type:'mpegts',isLive:true,url:u},{enableStashBuffer:false,liveBufferLatencyChasing:false,autoCleanupSourceBuffer:true,autoCleanupMaxBackwardDuration:S.tsMin*60});
  p.on(mpegts.Events.ERROR,(t,d,info)=>(netLog({step:'TS '+t+' '+d,status:info?.code,err:info?.msg,url:u}),P.failNow)?.({t:t===mpegts.ErrorTypes.NETWORK_ERROR?'The provider blocks web playback':"This channel can't play here",m:t===mpegts.ErrorTypes.NETWORK_ERROR?"The stream server didn't allow this web page to load it (CORS), or it is offline.":'This stream format is not supported in this browser.',d:`${d} ${info?.msg||''}`}));
