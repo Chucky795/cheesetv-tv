@@ -18,9 +18,9 @@ function toast(t,ms=3200){const e=$('#toast');e.textContent=t;e.hidden=false;cle
 
 /* ---------- network (direct from the viewer's browser; no proxy) ---------- */
 const WHY="Browsers have security rules that apps don't. A secure page (https) can't load http:// links (\"mixed content\"), and the provider's server must allow web access (CORS). Many IPTV providers only offer http or block browsers. Those channels still work in the CheeseTV Android / Google TV app, on Roku, and in the upcoming CheeseTV iPhone app.";
-async function getText(url,what,o){
+async function getText(url,what,o,ms=15000,sig){
  if(isMixed(url))throw new Error(`This ${what} link uses http:// (not secure). Web browsers (Safari and Chrome) block http links on secure websites, so the CheeseTV web app can't load it. ${APPS}`);
- let r;try{r=await fetch(url,{cache:'no-store'})}catch(e){throw new Error(`Couldn't reach the ${what}. The server is offline, or it blocks web browsers (CORS). The CheeseTV Android/Roku app can still load it.`)}
+ let r;const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),ms);sig?.addEventListener('abort',()=>ac.abort());try{r=await fetch(url,{cache:'no-store',signal:ac.signal});if(r.ok){const tx=await r.text();if(o)o.url=r.url||url;return tx}}catch(e){if(ac.signal.aborted&&!sig?.aborted)throw new Error(`The ${what} didn't answer within ${ms/1000} seconds.`);throw new Error(`Couldn't reach the ${what}. The server is offline, or it blocks web browsers (CORS). The CheeseTV Android/Roku app can still load it.`)}finally{clearTimeout(tm)}
  if(!r.ok)throw new Error(`The ${what} server answered with error ${r.status}.`);if(o)o.url=r.url||url;return r.text();
 }
 const getJSON=async(u,w)=>{const t=await getText(u,w);try{return JSON.parse(t)}catch(e){throw new Error(`The ${w} sent something that isn't valid data.`)}};
@@ -80,9 +80,9 @@ async function sweep(){try{const recs=await DB.recs(),keep=new Set();recs.forEac
 const attrs=l=>{const o={};l.replace(/([A-Z0-9-]+)=("[^"]*"|[^,]*)/g,(_,k,v)=>o[k]=v.replace(/^"|"$/g,''));return o};
 const abs=(u,b)=>new URL(u,b).href;
 class Recorder{
- constructor(url){this.url=url;this.sid='s'+Date.now().toString(36);this.tracks={};this.stopped=false;this.started=Date.now();this.rec=null;this.pinned=new Set();this.err=null}
+ constructor(url){this.url=url;this.sid='s'+Date.now().toString(36);this.tracks={};this.stopped=false;this.started=Date.now();this.rec=null;this.pinned=new Set();this.err=null;this.ac=new AbortController()}
  async start(){
-  const o={};const txt=await getText(this.url,'stream',o);this.url=o.url;if(!/#EXTM3U/.test(txt))throw new Error('not hls');
+  const o={};const txt=await getText(this.url,'stream',o,8000,this.ac.signal);this.url=o.url;if(!/#EXTM3U/.test(txt))throw new Error('not hls');
   let mainUrl=this.url,audioUrl=null,inf='';
   if(/#EXT-X-STREAM-INF/.test(txt)){
    const L=txt.split(/\r?\n/),vars=[],aud={};
@@ -102,7 +102,7 @@ class Recorder{
  }
  mk(name,url){return {name,url,segs:[],queue:[],seen:-1,idx:0,td:6,ended:false,inits:{},fetched:0}}
  async poll(t,first){
-  const o={};const txt=await getText(t.url,'stream',o);if(o.url)t.url=o.url;const L=txt.split(/\r?\n/);let seq=0,dur=0,disc=false,map=null,key=null,br=null,nextOff=0;const list=[];
+  const o={};const txt=await getText(t.url,'stream',o,8000,this.ac.signal);if(o.url)t.url=o.url;const L=txt.split(/\r?\n/);let seq=0,dur=0,disc=false,map=null,key=null,br=null,nextOff=0;const list=[];
   const rng=(v,prevUrl)=>{const [n,o]=v.split('@');return [o!==undefined?+o:nextOff,+n]};
   for(let l of L){l=l.trim();if(!l)continue;
    if(l.startsWith('#EXT-X-MEDIA-SEQUENCE:'))seq=+l.slice(22);else if(l.startsWith('#EXT-X-TARGETDURATION:'))t.td=+l.slice(22)||6;
@@ -125,8 +125,8 @@ class Recorder{
    await new Promise(r=>setTimeout(r,400));
   }}
  async fetchSeg(t,s){
-  if(s.map&&!t.inits[s.map]){const [mu,mb]=s.map.split('#br=');let o;if(mb){const [a,n]=mb.split('-');o={headers:{Range:`bytes=${a}-${+a+ +n-1}`}}}const r=await fetch(mu,o);if(!r.ok)throw new Error(r.status);const k=`${this.sid}/${t.name}/init${Object.keys(t.inits).length}`;await DB.put(k,await r.arrayBuffer());t.inits[s.map]=k}
-  const r=await fetch(s.u,s.br?{headers:{Range:`bytes=${s.br[0]}-${s.br[0]+s.br[1]-1}`}}:undefined);if(!r.ok)throw new Error('HTTP '+r.status);if(s.br&&r.status!==206)throw new Error('no range');const buf=await r.arrayBuffer();if(this.stopped)return;
+  if(s.map&&!t.inits[s.map]){const [mu,mb]=s.map.split('#br=');let o;if(mb){const [a,n]=mb.split('-');o={headers:{Range:`bytes=${a}-${+a+ +n-1}`}}}const r=await fetch(mu,{...(o||{}),signal:AbortSignal.any?AbortSignal.any([this.ac.signal,AbortSignal.timeout(10000)]):this.ac.signal});if(!r.ok)throw new Error(r.status);const k=`${this.sid}/${t.name}/init${Object.keys(t.inits).length}`;await DB.put(k,await r.arrayBuffer());t.inits[s.map]=k}
+  const r=await fetch(s.u,{...(s.br?{headers:{Range:`bytes=${s.br[0]}-${s.br[0]+s.br[1]-1}`}}:{}),signal:AbortSignal.any?AbortSignal.any([this.ac.signal,AbortSignal.timeout(10000)]):this.ac.signal});if(!r.ok)throw new Error('HTTP '+r.status);if(s.br&&r.status!==206)throw new Error('no range');const buf=await r.arrayBuffer();if(this.stopped)return;
   const k=`${this.sid}/${t.name}/${t.idx}`;await DB.put(k,buf);
   const seg={i:t.idx++,k,d:s.d,disc:s.disc,init:s.map?t.inits[s.map]:null,key:s.key,size:buf.byteLength,at:Date.now()};t.segs.push(seg);t.fetched+=s.d;
   if(this.rec){this.rec.tracks[t.name]?.segs.push(seg)??(this.rec.tracks[t.name]={segs:[seg]});this.pinned.add(k);seg.init&&this.pinned.add(seg.init)}
@@ -136,7 +136,7 @@ class Recorder{
  }
  dur(){return (this.tracks.main?.segs||[]).reduce((a,x)=>a+x.d,0)}
  bytes(){return Object.values(this.tracks).reduce((a,t)=>a+t.segs.reduce((b,x)=>b+x.size,0),0)}
- stop(){this.stopped=true;const keys=[];Object.values(this.tracks).forEach(t=>{t.segs.forEach(s=>!this.pinned.has(s.k)&&keys.push(s.k));Object.values(t.inits).forEach(k=>!this.pinned.has(k)&&keys.push(k))});DB.del(keys).catch(()=>{})}
+ stop(){this.stopped=true;try{this.ac.abort()}catch(e){}const keys=[];Object.values(this.tracks).forEach(t=>{t.segs.forEach(s=>!this.pinned.has(s.k)&&keys.push(s.k));Object.values(t.inits).forEach(k=>!this.pinned.has(k)&&keys.push(k))});DB.del(keys).catch(()=>{})}
 }
 const LOC='https://ctv.local/';
 function mediaPlaylist(segs,ended){
@@ -171,7 +171,8 @@ const hlsOK=()=>!!(window.Hls&&Hls.isSupported());
 const nativeOK=()=>!!V.canPlayType('application/vnd.apple.mpegurl');
 function teardown(){stopRecording(true);try{P.hls&&P.hls.destroy()}catch(e){}try{P.ts&&P.ts.destroy()}catch(e){}P.hls=P.ts=null;if(P.rec){P.rec.stop();if(Local.live===P.rec)Local.live=null;P.rec=null}
  V.onerror=V.onplaying=null;V.removeAttribute('src');V.load()}
-function spin(on){$('#pSpin').classList.toggle('on',!!on)}
+function spin(on){$('#pSpin').classList.toggle('on',!!on);if(!on)status('')}
+function status(t){let e=$('#pSpinT');if(!e){e=document.createElement('b');e.id='pSpinT';e.className='pspin-t';$('#pSpin').appendChild(e)}e.textContent=t}
 function showErr(title,msg,detail){spin(false);$('#pErr').innerHTML=`<h4>${esc(title)}</h4><p>${esc(msg)}</p>${detail?`<p class="d">Details: ${esc(detail)}</p>`:''}<p class="note">Channels that won't play in a browser usually still work in the CheeseTV ${IOS?'iPhone app (coming soon to the App Store)':'Android / Google TV app'} or on Roku.</p><div class="row"><button class="btn dark" id="eRetry">Try again</button><a class="btn gold" href="https://watchcheesetv.com/#devices">Get the app</a></div>`;
  $('#pErr').hidden=false;$('#eRetry').onclick=()=>P.vod?playVod(P.vod):playChannel(P.idx,P.list)}
 function openPlayer(){$('#player').hidden=false;$('#pErr').hidden=true;$('#mini').hidden=true;osdShow();if(!$('#player').dataset.k){$('#player').dataset.k=1}}
@@ -186,29 +187,29 @@ function playChannel(i,list){
 function updNow(){const c=S.cur;if(!c||P.vod)return;const np=nowProg(c);$('#pNow').textContent=np?`${np.t} · ${hm(np.a)} – ${hm(np.b)}`:(c.group||'Live TV')}
 async function start(urls,live){
  const tok=++P.token;teardown();spin(true);$('#pErr').hidden=true;P.live=live;
- const fresh=()=>tok===P.token;let lastErr=null;
+ const T0=Date.now(),DEADLINE=60000,fresh=()=>tok===P.token&&Date.now()-T0<DEADLINE;status('Connecting…');let lastErr=null;
  for(const u of urls){
   if(!fresh())return;
   if(isMixed(u)){lastErr={t:"This channel can't play in a browser",m:'The stream link starts with http://, and secure web pages (https) are not allowed to play http streams. This is a browser security rule, not a problem with your channel.',d:u.replace(/\/\/([^/]+)\/.*/,'//$1/…')};continue}
   const k=kind(u);
   if(live&&(k==='hls'||k==='unknown')&&hlsOK()&&!P.forceNative){ // timeshift mode: we keep the segments ourselves
-   const rec=new Recorder(u);try{await Promise.race([rec.start(),new Promise((_,j)=>setTimeout(()=>j(new Error('timeout')),12000))]);
-    const t0=Date.now();while(fresh()&&!rec.err&&(rec.tracks.main.segs.length<2||rec.tracks.audio&&rec.tracks.audio.segs.length<2)&&Date.now()-t0<15000)await new Promise(r=>setTimeout(r,250));
-    if(!fresh()){rec.stop();return}
+   const rec=new Recorder(u);try{await Promise.race([rec.start(),new Promise((_,j)=>setTimeout(()=>j(new Error('timeout')),9000))]);
+    status('Buffering…');const t0=Date.now();while(fresh()&&!rec.err&&(rec.tracks.main.segs.length<2||rec.tracks.audio&&rec.tracks.audio.segs.length<2)&&Date.now()-t0<10000)await new Promise(r=>setTimeout(r,250));
+    if(!fresh()){rec.stop();if(tok!==P.token)return;break}
     if(rec.tracks.main.segs.length>=1){P.rec=rec;Local.live=rec;if(await tryHls(`${LOC}live/${rec.sid}/master.m3u8`,true,tok))return setMode('shift');teardown()}else rec.stop()}
    catch(e){rec.stop();if(e.message==='not hls'&&k==='hls'){lastErr={t:"This channel can't play here",m:"The link didn't return a video stream."}}}
   }
   if(!fresh())return;
   if((k==='hls'||k==='unknown')&&(P.forceNative||IOS&&!hlsOK())&&nativeOK()){if(await tryNative(u,tok))return setMode('native');lastErr=lastErr||P.lastErr;continue}
-  if((k==='hls'||k==='unknown')&&hlsOK()){if(await tryHls(u,false,tok))return setMode(live?'buffer':'vod');lastErr=P.lastErr;continue}
-  if((k==='ts'||k==='unknown')&&window.mpegts&&mpegts.getFeatureList().mseLivePlayback){if(await tryTs(u,tok))return setMode('ts');lastErr=P.lastErr;continue}
+  if((k==='hls'||k==='unknown')&&hlsOK()){status('Trying HLS stream…');if(await tryHls(u,false,tok))return setMode(live?'buffer':'vod');lastErr=P.lastErr;continue}
+  if((k==='ts'||k==='unknown')&&window.mpegts&&mpegts.getFeatureList().mseLivePlayback){status('Trying TS stream…');if(await tryTs(u,tok))return setMode('ts');lastErr=P.lastErr;continue}
   if(k==='ts'){lastErr={t:"This channel can't play in this browser",m:'This is a raw .ts stream. iPhone Safari can only play HLS (.m3u8) streams in a web page.'};continue}
   if(await tryNative(u,tok))return setMode(live?'native':'vod');lastErr=P.lastErr;
  }
- if(fresh()){const e=lastErr||{};showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",e.d)}
+ if(tok===P.token){if(Date.now()-T0>=DEADLINE)lastErr=lastErr||{t:'The channel is taking too long',m:"No stream format started within a minute. The channel may be offline, your provider may allow only one connection at a time (close other apps using your login), or it blocks web browsers.",d:'timeout'};teardown();const e=lastErr||{};showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",e.d)}
 }
-function waitPlaying(tok,ms=20000){return new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;clearTimeout(t);V.removeEventListener('playing',ok);res(v)}};const ok=()=>fin(true);
- V.addEventListener('playing',ok);const t=setTimeout(()=>{P.lastErr={t:'The channel is taking too long',m:"The stream didn't start within 20 seconds. The channel may be offline, or the provider blocks web browsers.",d:'timeout'};fin(false)},ms);P.failNow=e=>{P.lastErr=e;fin(false)};
+function waitPlaying(tok,ms=15000){return new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;clearTimeout(t);V.removeEventListener('playing',ok);res(v)}};const ok=()=>fin(true);
+ V.addEventListener('playing',ok);const t=setTimeout(()=>{P.lastErr={t:'The channel is taking too long',m:"The stream didn't start within 15 seconds. The channel may be offline, or the provider blocks web browsers.",d:'timeout'};fin(false)},ms);P.failNow=e=>{P.lastErr=e;fin(false)};
  const iv=setInterval(()=>{if(tok!==P.token){clearInterval(iv);fin(false)}if(done)clearInterval(iv)},300)})}
 function tryHls(u,local,tok){
  const h=P.hls=new Hls(local?{loader:makeLoader(),backBufferLength:90,liveSyncDurationCount:2,maxBufferLength:30,manifestLoadingMaxRetry:4,levelLoadingMaxRetry:6,fragLoadingMaxRetry:6}
@@ -405,7 +406,7 @@ async function xtResolve(p){
   throw new Error(`Your provider's server uses http:// (not secure), and it doesn't support https://. Web browsers (Safari and Chrome) block http connections from secure websites, so the CheeseTV web app can't sign in to this provider. This is a browser rule, not a problem with your login. ${APPS}`)}
  try{await xtProbe(p.server,p.user,p.pass)}catch(e){throw new Error(e.m||String(e))}}
 async function addPl(p,form){const m=$('#siMsg'),btn=form.querySelector('.btn'),bt=btn.textContent;m.className='msg';m.textContent='';btn.textContent='Signing in…';btn.disabled=true;
- const fail=t=>{m.className='msg e';m.textContent=t;if(location.protocol==='https:'&&/uses http:\/\//.test(t)){const a=document.createElement('a');a.className='btn gold';a.id='btnHttpCopy';a.href=HTTP_COPY;a.style.marginTop='12px';a.textContent='Open CheeseTV for http providers';m.appendChild(a);
+ const fail=t=>{m.className='msg e';m.textContent=t;if(location.protocol==='https:'&&/uses http:\/\//.test(t)){const a=document.createElement('a');a.className='btn gold';a.id='btnHttpCopy';a.href=HTTP_COPY;a.onclick=ev=>{ev.preventDefault();headsUp(HTTP_COPY)};a.style.marginTop='12px';a.textContent='Open CheeseTV for http providers';m.appendChild(a);
   const n=document.createElement('p');n.className='fine';n.textContent="It opens a non-secure (http) copy of this player that can connect to http providers. You'll sign in again there.";m.appendChild(n)}m.scrollIntoView({block:'center',behavior:'smooth'})};
  try{if(p.type==='xt'){await xtResolve(p);await loadXtream(p)}else{if(isMixed(p.url)){const h='https://'+p.url.slice(7);try{parseM3U(await getText(h,'playlist'));p.url=h}catch(e){}}parseM3U(await getText(p.url,'playlist'))}}catch(e){fail(e.message||String(e));return}finally{btn.textContent=bt;btn.disabled=false}
  form.reset();p.id='p'+Date.now();S.pls.push(p);S.active=p.id;S.group='All';S.view='guide';save();loadActive()}
@@ -423,3 +424,7 @@ setInterval(()=>{if(!$('#shell').hidden&&$('#player').hidden&&S.view==='guide')r
 try{if('serviceWorker' in navigator)navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister())).catch(()=>{});if(window.caches)caches.keys().then(k=>k.forEach(x=>caches.delete(x))).catch(()=>{})}catch(e){}
 try{if(window.isSecureContext)navigator.storage?.persist?.().catch(()=>{})}catch(e){}
 try{sweep();loadActive()}catch(e){console.error(e);try{$('#shell').hidden=true;$('#player').hidden=true;$('#signin').hidden=false;const m=$('#siMsg');if(m){m.className='msg e';m.textContent='Something went wrong loading your saved playlist. Please sign in again.'}}catch(_){}}
+
+function headsUp(url){let d=$('#headsUp');if(!d){d=document.createElement('div');d.id='headsUp';d.className='hu-back';d.innerHTML=`<div class="hu-card" role="dialog" aria-modal="true" aria-labelledby="huT"><div class="hu-ico">🧀</div><h3 id="huT">Quick heads-up</h3><p>Your browser will show a <b>“doesn't support a secure connection”</b> notice next. That's normal for TV providers. Just tap <b>Continue to site</b>.</p><p class="fine">Your provider uses http, so the CheeseTV player has to as well. You only sign in to your own provider there.</p><div class="row"><button class="btn dark" id="huNo">Cancel</button><button class="btn gold" id="huGo">Continue</button></div></div>`;document.body.appendChild(d);
+ d.addEventListener('click',e=>{if(e.target===d)d.hidden=true});$('#huNo').onclick=()=>d.hidden=true}
+ $('#huGo').onclick=()=>{d.hidden=true;location.href=url};d.hidden=false;$('#huGo').focus()}

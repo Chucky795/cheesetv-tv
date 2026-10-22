@@ -149,3 +149,9 @@ main{max-width:1400px;margin:0 auto}
 @media (max-width:640px){.modebadge{display:none}.octl{flex-wrap:nowrap;justify-content:space-between;gap:4px}.octl .sp{display:none}.cb{min-width:40px;height:42px;padding:0 6px;border-radius:12px;font-size:14px}.cb.big{width:54px;height:54px;flex:none}.ologo{width:46px;height:34px}.ochan b{font-size:15px}.wm{top:auto;bottom:calc(150px + env(safe-area-inset-bottom))}}
 .rec .lg{width:56px;height:42px;flex:none}
 .si-card .msg.e{background:#2a0f0f;border:1px solid #ff4d4d66;border-radius:12px;padding:12px 14px;color:#ffd2d2;text-align:left;margin-top:12px}
+
+.pspin{place-content:center;justify-items:center}.pspin-t{display:block;margin-top:14px;color:#f5c542;font:600 14px system-ui;text-shadow:0 1px 3px #000;text-align:center}
+.hu-back{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.78);display:flex;align-items:center;justify-content:center;padding:20px}.hu-back[hidden]{display:none}
+.hu-card{max-width:420px;width:100%;background:linear-gradient(160deg,#151515,#000);border:2px solid #d4a017;border-radius:18px;padding:26px 22px;color:#f3f3f3;text-align:center;box-shadow:0 0 40px rgba(212,160,23,.35)}
+.hu-card h3{margin:6px 0 10px;color:#f5c542;font-size:22px}.hu-card p{line-height:1.5;margin:0 0 12px}.hu-card b{color:#ffd76a}.hu-ico{font-size:40px}
+.hu-card .row{display:flex;gap:12px;justify-content:center;margin-top:16px}.hu-card .btn{min-width:120px;cursor:pointer}
