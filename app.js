@@ -253,7 +253,7 @@ function openVlc(u,box,v){if(!u)return;v=v||P.vod;if(v&&v.url===u){v.sid&&noteLa
  if(IOS)setTimeout(()=>{document.removeEventListener('visibilitychange',vis);if(left||document.hidden)return;
   const g=box||document.body,h=`<p class="note">Don't have VLC? It's free on the App Store.</p><a class="btn gold" href="${VLC_IOS}" target="_blank" rel="noopener">Get VLC (free)</a>`;
   if(box){box.innerHTML=h}else toast("VLC didn't open. Get VLC (free) from the App Store.",6000),window.open(VLC_IOS,'_blank')},2000)}
-function openPlayer(){$('#player').hidden=false;$('#pErr').hidden=true;$('#mini').hidden=true;osdShow();if(!$('#player').dataset.k){$('#player').dataset.k=1}}
+function openPlayer(){if($('#player').hidden)hpush('player');$('#player').hidden=false;$('#pErr').hidden=true;$('#mini').hidden=true;osdShow();if(!$('#player').dataset.k){$('#player').dataset.k=1}}
 function playChannel(i,list){
  list=list||P.list;if(!list.length)return;i=(i+list.length)%list.length;const c=list[i];P.list=list;P.idx=i;P.vod=null;S.cur=c;
  const r=S.recent[pl().id]=(S.recent[pl().id]||[]).filter(k=>k!==ckey(c));r.unshift(ckey(c));r.length=Math.min(r.length,20);save();
@@ -347,8 +347,8 @@ $('#pRw').onclick=()=>{seekTo(V.currentTime-10);osdShow()};$('#pFf').onclick=()=
 $('#pPlay').onclick=()=>{V.paused?V.play():V.pause();osdShow()};
 $('#pLive').onclick=()=>{const [,b]=range();seekTo(P.hls?.liveSyncPosition||b-4);V.play();osdShow()};
 $('#pChUp').onclick=()=>playChannel(P.idx-1);$('#pChDn').onclick=()=>playChannel(P.idx+1);
-$('#pBack').onclick=closePlayer;
-$('#pFs').onclick=()=>{const el=$('#player');if(document.fullscreenElement||document.webkitFullscreenElement){(document.exitFullscreen||document.webkitExitFullscreen).call(document)}else if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});else if(el.webkitRequestFullscreen)el.webkitRequestFullscreen();else if(V.webkitEnterFullscreen)V.webkitEnterFullscreen()};
+$('#pBack').onclick=()=>uiBack(closePlayer);
+$('#pFs').onclick=()=>{const el=$('#player');if(document.fullscreenElement||document.webkitFullscreenElement){(document.exitFullscreen||document.webkitExitFullscreen).call(document)}else if(el.requestFullscreen)el.requestFullscreen().then(()=>hpush('fs')).catch(()=>{});else if(el.webkitRequestFullscreen)el.webkitRequestFullscreen();else if(V.webkitEnterFullscreen)V.webkitEnterFullscreen()};
 $('#pAir').onclick=()=>{if(P.mode!=='native'&&!P.vod){if(!confirm("AirPlay uses the iPhone's built-in player. Pause & rewind and recording are turned off while using it. Continue?"))return;P.forceNative=true;playChannel(P.idx);setTimeout(()=>V.webkitShowPlaybackTargetPicker?.(),1500);return}V.webkitShowPlaybackTargetPicker?.()};
 function closePlayer(){LS.setItem('ctv.resume',JSON.stringify(S.resume));if(P.vod&&V.duration>0&&V.currentTime>5){P.vod.sid&&noteLast(P.vod,V.currentTime,V.duration);pushProg(P.vod,V.currentTime,V.duration)}P.token++;teardown();P.forceNative=false;$('#player').hidden=true;if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});render()}
 /* auto-hide OSD */
@@ -358,8 +358,8 @@ document.addEventListener('keydown',e=>{if($('#player').hidden||e.target.tagName
  if(k==='Escape')$('#mini').hidden?closePlayer():$('#mini').hidden=true;else if(k===' '){e.preventDefault();$('#pPlay').click()}else if(k==='ArrowLeft')$('#pRw').click();else if(k==='ArrowRight')$('#pFf').click();
  else if(k==='ArrowUp'||k==='PageUp'){e.preventDefault();P.vod||$('#pChUp').click()}else if(k==='ArrowDown'||k==='PageDown'){e.preventDefault();P.vod||$('#pChDn').click()}else if(k==='g')$('#pMini').click();else if(k==='r')$('#pRec').click();osdShow()});
 /* mini guide */
-$('#miniX').onclick=()=>$('#mini').hidden=true;
-$('#pMini').onclick=()=>{const m=$('#mini');if(!m.hidden){m.hidden=true;return}m.hidden=false;
+$('#miniX').onclick=()=>uiBack(()=>$('#mini').hidden=true);
+$('#pMini').onclick=()=>{const m=$('#mini');if(!m.hidden){uiBack(()=>m.hidden=true);return}hpush('mini');m.hidden=false;
  $('#miniList').innerHTML=P.list.map((c,i)=>{const np=nowProg(c);return `<div class="ch ${i===P.idx?'cur':''}" data-i="${i}">${logo(c)}<div class="t"><b>${esc(c.name)}</b><small class="${np?'now':''}">${esc(np?np.t:c.group)}</small></div></div>`}).join('');
  $$('#miniList .ch').forEach(el=>el.onclick=()=>playChannel(+el.dataset.i));$('#miniList .cur')?.scrollIntoView({block:'center'})};
 
@@ -455,7 +455,7 @@ async function openDetail(v){stopLive();const p=pl(),B=`${xb(p)}/player_api.php?
  try{if(v.type==='movie'){info=(await getJSON(`${B}&action=get_vod_info&vod_id=${v.id}`,'Xtream server')).info||{}}else{const r=await getJSON(`${B}&action=get_series_info&series_id=${v.id}`,'Xtream server');info=r.info||{};eps=r.episodes||{}}}catch(e){}
  const fm=v.type==='movie'?webFmt(info,v.ext):null;v.fmt=fm;
  const res=S.resume[v.key],plot=info.plot||info.description||v.plot||'',rating=info.rating||v.rating,yr=(info.releasedate||info.releaseDate||'').slice(0,4);
- let h=`<div class="shd"><h3>${esc(v.name)}</h3>${HEART(v.id,v.type)}<button class="ic" onclick="closeSheet()">&#10005;</button></div><div class="det"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}"></div><div><div class="meta">${[rating&&`★ ${esc(rating)}`,yr,info.genre&&esc(info.genre),info.duration&&esc(info.duration)].filter(Boolean).join(' · ')}${fm&&!fm.ok?' '+(fm.eng?BETA:APP_ONLY):''}</div>${fm&&!fm.ok&&fm.eng?`<p class="note">This movie has Dolby audio, which browsers can't play directly. The web player decodes it on your device (beta, uses more battery; seeking takes a few seconds).</p>`:''}${fm&&!fm.ok&&!fm.eng?`<p class="note">This movie's format (${esc(fm.bad.join(' / '))}) can't play in a web browser. Use Open in VLC or the CheeseTV app.</p>`:''}<p>${esc(plot)||'No description.'}</p>`;
+ let h=`<div class="shd"><h3>${esc(v.name)}</h3>${HEART(v.id,v.type)}<button class="ic" onclick="uiBack(closeSheet)">&#10005;</button></div><div class="det"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}"></div><div><div class="meta">${[rating&&`★ ${esc(rating)}`,yr,info.genre&&esc(info.genre),info.duration&&esc(info.duration)].filter(Boolean).join(' · ')}${fm&&!fm.ok?' '+(fm.eng?BETA:APP_ONLY):''}</div>${fm&&!fm.ok&&fm.eng?`<p class="note">This movie has Dolby audio, which browsers can't play directly. The web player decodes it on your device (beta, uses more battery; seeking takes a few seconds).</p>`:''}${fm&&!fm.ok&&!fm.eng?`<p class="note">This movie's format (${esc(fm.bad.join(' / '))}) can't play in a web browser. Use Open in VLC or the CheeseTV app.</p>`:''}<p>${esc(plot)||'No description.'}</p>`;
  if(v.type==='movie')h+=`<button class="btn gold" id="dPlay" style="width:auto">&#9654; ${res?'Resume '+fmt(res.t):'Play'}</button>${res?' <button class="btn dark" id="dStart" style="width:auto">From start</button>':''}`+` <button class="btn dark vlcs" id="dVlc" style="width:auto">${IOS||ANDROID?'Open in VLC':'Copy link for VLC'}</button>`;
  if(v.type==='series'){const L=WD().last[v.id];if(L)h+=`<button class="btn gold" id="dCont" style="width:auto">&#9654; Continue S${esc(L.s)}E${esc(L.e)}</button>${L.title?` <small class="note">${esc(L.title)}</small>`:''}`}
  h+='</div></div>';
@@ -468,7 +468,7 @@ async function openDetail(v){stopLive();const p=pl(),B=`${xb(p)}/player_api.php?
   $$('#dSeas button').forEach(b=>b.onclick=()=>{$$('#dSeas button').forEach(x=>x.classList.toggle('on',x===b));show(b.dataset.s)});show(Object.keys(eps).sort((a,b)=>a-b)[0])}}
 /* In-browser engine (lazy): demux MKV/MP4, decode Dolby audio in WASM, re-encode, remux to MSE. One sequential connection. */
 // fallback for plain files the <video> element can't open (moov at the end needs a 2nd parallel request; untagged MKV): demux over one connection
-async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=16')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
+async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=17')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
  if(tok!==P.token)return false;try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  const w=waitPlaying(tok,40000);let failed=null;
  try{P.eng=await E.open(V,u,{start:P.vodStart||0,ctx:P.actx,onStatus:t=>{if(tok===P.token&&t)status(t)},onError:e=>{failed=e;P.failNow&&P.failNow({t:"This movie couldn't start",m:'The single-connection player could not read this file.',d:'engine: '+redact(String(e&&e.message||e))})}})}catch(e){return false}
@@ -477,7 +477,7 @@ async function playEngine(v,at){const tok=++P.token;teardown();$('#pRec').hidden
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;
  try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  spin(true);status('Loading the beta player…');let E;
- try{E=await import('/vendor/ctv-engine.js?v=16')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
+ try{E=await import('/vendor/ctv-engine.js?v=17')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
  if(tok!==P.token)return;const c=await E.canHandle(v.fmt.vc,v.fmt.ac);if(tok!==P.token)return;
  if(!c.ok){fmtBlockErr({...v,fmt:{...v.fmt,bad:[...v.fmt.bad,c.why]}});return}
  try{P.eng=await E.open(V,v.url,{start:at||0,ctx:P.actx,onStatus:t=>{if(tok===P.token){if(t){spin(true);status(t)}else spin(false)}},
@@ -520,14 +520,14 @@ function renderSearch(){const q=$('#q').value.trim().toLowerCase(),R=$('#sres');
  bindRows(R,ch);$$('#sres .poster').forEach(b=>b.onclick=()=>openDetail(v.find(x=>x.key===b.dataset.k)))}
 $('#q').oninput=renderSearch;
 function toggleFav(c){const p=pl(),s=favSet(),k=ckey(c);s.has(k)?s.delete(k):s.add(k);S.favs[p.id]=[...s];save()}
-$$('#tabs button').forEach(b=>b.onclick=()=>{S.view=b.dataset.v;if(S.view==='vod'&&pl()?.type!=='xt')S.view='guide';render();if(S.view==='search')setTimeout(()=>$('#q').focus(),50);window.scrollTo({top:0,behavior:'smooth'})});
-$('#home').onclick=e=>{e.preventDefault();S.view='guide';render()};
+$$('#tabs button').forEach(b=>b.onclick=()=>{const was=S.view;S.view=b.dataset.v;if(S.view!==was){if(S.view==='guide'&&history.state?.ctv==='tab'){history.back();return}if(S.view!=='guide')history.state?.ctv==='tab'?history.replaceState({ctv:'tab'},''):hpush('tab')}if(S.view==='vod'&&pl()?.type!=='xt')S.view='guide';render();if(S.view==='search')setTimeout(()=>$('#q').focus(),50);window.scrollTo({top:0,behavior:'smooth'})});
+$('#home').onclick=e=>{e.preventDefault();if(S.view!=='guide'&&history.state?.ctv==='tab'){history.back();return}S.view='guide';render()};
 $('#pFavHint')&&0;
 
 /* ---------- sheets: settings ---------- */
-function sheet(h){$('#sheetCard').innerHTML=h;$('#sheet').hidden=false}function closeSheet(){$('#sheet').hidden=true}
-$('#sheet').onclick=e=>{if(e.target.id==='sheet')closeSheet()};
-function openSettings(){sheet(`<div class="shd"><h3>Settings</h3><button class="ic" onclick="closeSheet()">&#10005;</button></div>
+function sheet(h){$('#sheetCard').innerHTML=h;if($('#sheet').hidden)hpush('sheet');$('#sheet').hidden=false}function closeSheet(){$('#sheet').hidden=true}
+$('#sheet').onclick=e=>{if(e.target.id==='sheet')uiBack(closeSheet)};
+function openSettings(){sheet(`<div class="shd"><h3>Settings</h3><button class="ic" onclick="uiBack(closeSheet)">&#10005;</button></div>
  <div class="vpn-set"><b>Buffering a lot?</b> Your internet provider may be slowing streams. Turn on a free VPN like Proton VPN, then reload. <a href="https://protonvpn.com/download" target="_blank" rel="noopener">Get Proton VPN</a></div>
  <h4 style="margin:6px 0 8px">Playlists</h4>${S.pls.map(p=>`<div class="pl ${p.id===pl()?.id?'on':''}"><b>${esc(p.name)}</b><small style="color:var(--mut)">${p.type==='xt'?'Xtream':'M3U'}</small><button data-a="use" data-id="${p.id}">Use</button><button data-a="del" data-id="${p.id}">Remove</button></div>`).join('')}
  <button class="btn gold" id="stAdd" style="margin:6px 0 16px">+ Add playlist / sign in</button>
@@ -540,8 +540,8 @@ function openSettings(){sheet(`<div class="shd"><h3>Settings</h3><button class="
  $('#stAdd').onclick=()=>{closeSheet();showSignin(true)};$$('#stTs button').forEach(b=>b.onclick=()=>{S.tsMin=+b.dataset.m;LS.setItem('ctv.tsmin',S.tsMin);$$('#stTs button').forEach(x=>x.classList.toggle('on',x===b))})}
 $('#btnSettings').onclick=openSettings;
 /* ---------- sign in ---------- */
-function showSignin(cancel){$('#signin').hidden=false;$('#siSeg [data-t=xt]').click();$('#siCancel').hidden=!cancel;$('#siMsg').textContent=''}
-$('#siCancel').onclick=()=>{$('#signin').hidden=true};
+function showSignin(cancel){if(cancel&&$('#signin').hidden)hpush('signin');$('#signin').hidden=false;$('#siSeg [data-t=xt]').click();$('#siCancel').hidden=!cancel;$('#siMsg').textContent=''}
+$('#siCancel').onclick=()=>uiBack(()=>{$('#signin').hidden=true});
 $('#siWhy').onclick=e=>{e.preventDefault();const m=$('#siMsg');m.className='msg';m.textContent=WHY};
 $$('#siSeg button').forEach(b=>b.onclick=()=>{$$('#siSeg button').forEach(x=>x.classList.toggle('on',x===b));$('#fXt').hidden=b.dataset.t!=='xt';$('#fM3u').hidden=b.dataset.t!=='m3u';$('#siMsg').textContent=''});
 const HTTP_COPY='';
@@ -596,7 +596,7 @@ try{sweep();loadActive()}catch(e){console.error(e);try{$('#shell').hidden=true;$
 (()=>{const q=new URLSearchParams(location.search),sv=q.get('server'),us=q.get('user');if(!sv&&!us)return;
  try{const F=$('#fXt').elements;$$('#siSeg button').forEach(b=>b.dataset.t==='xt'&&b.click());if(sv)F.server.value=sv;if(us)F.user.value=us;setTimeout(()=>F.pass.focus(),300);
   const m=$('#siMsg');m.className='msg';m.textContent='Enter your password to finish signing in.'}catch(e){}
- q.delete('server');q.delete('user');history.replaceState(null,'',location.pathname+(q.toString()?'?'+q:'')+location.hash)})();
+ q.delete('server');q.delete('user');history.replaceState(history.state,'',location.pathname+(q.toString()?'?'+q:'')+location.hash)})();
 
 function headsUp(url){let d=$('#headsUp');if(!d){d=document.createElement('div');d.id='headsUp';d.className='hu-back';d.innerHTML=`<div class="hu-card" role="dialog" aria-modal="true" aria-labelledby="huT"><div class="hu-ico">🧀</div><h3 id="huT">Quick heads-up</h3><p>Your browser will show a <b>“doesn't support a secure connection”</b> notice next. That's normal for TV providers. Just tap <b>Continue to site</b>.</p><p class="fine">Your provider uses http, so the CheeseTV player has to as well. You only sign in to your own provider there.</p><div class="row"><button class="btn dark" id="huNo">Cancel</button><button class="btn gold" id="huGo">Continue</button></div></div>`;document.body.appendChild(d);
  d.addEventListener('click',e=>{if(e.target===d)d.hidden=true});$('#huNo').onclick=()=>d.hidden=true}
@@ -615,3 +615,27 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
  V.addEventListener('waiting',()=>{if(!P.mode)return;const n=Date.now();ws=n;st.push(n);while(st.length&&n-st[0]>60000)st.shift();if(st.length>2)show();clearTimeout(tm);tm=setTimeout(()=>{if(ws&&V.readyState<3)show()},5000)});
  V.addEventListener('playing',()=>{ws=0;clearTimeout(tm)});
 })();
+
+/* ---------- Back button: in-app history (v17) ---------- */
+function hpush(n){try{history.pushState({ctv:n==='tab'?'tab':'L',n},'')}catch(e){}}
+// on-screen close buttons: go through history when the layer has its own entry, so the stack stays in step
+function uiBack(fn){const s=history.state?.ctv;if(s==='L'||s==='tab')history.back();else fn()}
+const H={skip:0,exitAt:0};
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&history.state?.n==='fs'){H.skip=1;history.back()}});
+function closeTop(){
+ if(document.fullscreenElement||document.webkitFullscreenElement){(document.exitFullscreen||document.webkitExitFullscreen).call(document);return true}
+ if(!$('#mini').hidden&&!$('#player').hidden){$('#mini').hidden=true;return true}
+ if(!$('#player').hidden){closePlayer();return true} // stops and releases the stream
+ if(!$('#sheet').hidden){closeSheet();return true}
+ if(!$('#headsUp')?.hidden&&$('#headsUp')){$('#headsUp').hidden=true;return true}
+ if(!$('#signin').hidden&&!$('#siCancel').hidden&&pl()){$('#signin').hidden=true;return true}
+ if(!$('#shell').hidden&&S.view!=='guide'){S.view='guide';render();window.scrollTo({top:0});return true}
+ return false}
+window.addEventListener('popstate',e=>{if(H.skip){H.skip=0;return}const st=e.state?.ctv;
+ if(closeTop())return;
+ if(st==='L'||st==='tab'){history.back();return} // stale entry (layer already closed): skip it
+ if(st===1)return; // guard
+ // popped past the guard at the Guide root
+ if(Date.now()-H.exitAt<2000){history.back();return}
+ H.exitAt=Date.now();toast('Press back again to exit CheeseTV',2000);history.pushState({ctv:1},'')});
+try{if(history.state?.ctv==null){history.replaceState({ctv:0},'');history.pushState({ctv:1},'')}}catch(e){}
