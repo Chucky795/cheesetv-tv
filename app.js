@@ -225,7 +225,7 @@ async function start(urls,live){
    // quick refusal = the provider's 1-connection slot is still held (error 458 / 407); wait and retry the same stream
    if(Date.now()-ta<4000&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'busy (458/407)'};await sleep(3000);si--;}continue}
   if(how==='file'){status('Opening movie…');if(await tryNative(u,tok,20000))return setMode('vod');lastErr=P.lastErr||lastErr;
-   if(Date.now()-ta<4000&&busy<4&&fresh()){busy++;status(`Waiting for your provider to free your connection… (${busy})`);teardown();await sleep(3000);si--;continue} // quick refusal: 1-connection slot still held
+   if(Date.now()-ta<4000&&busy<4&&fresh()){busy++;status(`Waiting for your provider to free your connection… (${busy})`);teardown();await sleep(3000+busy*2000);si--;continue} // quick refusal: 1-connection slot still held
    if(fresh()){teardown();status('Trying the single-connection player…');await sleep(1000);if(await tryEngine(u,tok))return setMode('vod');lastErr=P.lastErr||lastErr}
    const fmt=/media error 3/.test(lastErr?.d||'');
    lastErr=fmt?{t:"This movie's format can't play in a browser",m:"This file uses a video format (for example HEVC/H.265 10-bit) that this browser can't play. Use the CheeseTV Android / Google TV app or Roku, or pick another version of this title (MP4) if your provider lists one.",d:lastErr?.d}
@@ -321,19 +321,20 @@ async function downloadRec(r,btn){btn.textContent='Preparing…';try{
  catch(e){toast('Download failed: '+e.message)}btn.innerHTML='&#11015; Download'}
 
 /* ---------- Movies & Series (Xtream VOD) ---------- */
-async function loadVod(){const p=pl();if(S.vod?.pid===p.id)return S.vod;const B=`${xb(p)}/player_api.php?${xq(p)}`;
- const [mc,ms,sc,ss]=await Promise.all(['get_vod_categories','get_vod_streams','get_series_categories','get_series'].map(a=>getJSON(`${B}&action=${a}`,'Xtream server').catch(()=>[])));
- const cn=a=>{const o={};(a||[]).forEach(c=>o[c.category_id]=c.category_name);return o},m=cn(mc),s=cn(sc);
- S.vod={pid:p.id,movie:(ms||[]).map(v=>({type:'movie',id:v.stream_id,name:v.name,img:v.stream_icon,rating:v.rating,group:m[v.category_id]||'Movies',ext:v.container_extension||'mp4',key:'m'+v.stream_id})),
-  series:(ss||[]).map(v=>({type:'series',id:v.series_id,name:v.name,img:v.cover,rating:v.rating,plot:v.plot,group:s[v.category_id]||'Series',key:'s'+v.series_id}))};return S.vod}
+async function vodGet(B,a){let last;for(let n=0;n<5;n++){if(n)await sleep([0,1500,3000,6000,10000][n]);try{const r=await getJSON(`${B}&action=${a}${n?'&_r='+n:''}`,'Xtream server');if(Array.isArray(r))return r;if(r&&typeof r==='object'&&!r.user_info)return Object.values(r);last=new Error('The provider sent an unexpected answer.')}catch(e){last=e}}throw last}
+async function loadVod(type){const p=pl();if(S.vod?.pid!==p.id)S.vod={pid:p.id};const V=S.vod;if(V[type])return V;const B=`${xb(p)}/player_api.php?${xq(p)}`;
+ const [ca,li]=type==='movie'?['get_vod_categories','get_vod_streams']:['get_series_categories','get_series'];
+ const c=await vodGet(B,ca).catch(()=>[]);await sleep(1200);const l=await vodGet(B,li);
+ if(!l.length)throw new Error('The provider sent an empty list.');const m={};c.forEach(x=>m[x.category_id]=x.category_name);
+ V[type]=type==='movie'?l.map(v=>({type:'movie',id:v.stream_id,name:v.name,img:v.stream_icon,rating:v.rating,group:m[v.category_id]||'Movies',ext:v.container_extension||'mp4',key:'m'+v.stream_id})):l.map(v=>({type:'series',id:v.series_id,name:v.name,img:v.cover,rating:v.rating,plot:v.plot,group:m[v.category_id]||'Series',key:'s'+v.series_id}));return V}
 const posterCard=v=>{const r=S.resume[v.key]||(v.type==='series'&&Object.entries(S.resume).filter(([k])=>k.startsWith('e'+v.id+':')).sort((a,b)=>b[1].at-a[1].at)[0]?.[1]);
  return `<button class="poster" data-k="${esc(v.key)}"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}">${v.img&&!isMixed(v.img)?'':esc(v.name)}${r&&r.d?`<div class="pbar"><i style="width:${Math.min(100,r.t/r.d*100)}%"></i></div>`:''}</div><small>${esc(v.name)}</small></button>`};
 async function renderVod(){const B=$('#vodBody');B.innerHTML=Array(3).fill('<div class="vrow"><h3><span class="sk" style="display:inline-block;width:120px;height:18px"></span></h3><div class="vscroll">'+Array(8).fill('<div class="sk" style="width:128px;height:190px;flex:none"></div>').join('')+'</div></div>').join('');
- let d;try{d=await loadVod()}catch(e){B.innerHTML=`<p class="empty">${esc(e.message)}</p>`;return}
- const items=d[S.vodType],groups={};items.forEach(v=>(groups[v.group]??=[]).push(v));
+ const T=S.vodType,W=T==='movie'?'movies':'series';let d;try{d=await loadVod(T)}catch(e){if(S.vodType!==T)return;B.innerHTML=`<div class="empty"><p>Couldn't load ${W}. Your provider may be busy. Wait a moment and try again.</p><p><button class="btn" id="vodRetry">Try again</button></p><details><summary>Details</summary><small>${esc(e.message||String(e))}</small></details></div>`;$('#vodRetry').onclick=renderVod;return}if(S.vodType!==T)return
+ const items=d[T],groups={};items.forEach(v=>(groups[v.group]??=[]).push(v));
  const cont=items.filter(v=>S.resume[v.key]||v.type==='series'&&Object.keys(S.resume).some(k=>k.startsWith('e'+v.id+':'))).slice(0,20);
  const rows=(cont.length?[['Continue Watching',cont]]:[]).concat(Object.entries(groups));
- B.innerHTML=rows.length?rows.map(([g,l])=>`<div class="vrow"><h3>${esc(g)}</h3><div class="vscroll">${l.slice(0,60).map(posterCard).join('')}</div></div>`).join(''):`<p class="empty">No ${S.vodType==='movie'?'movies':'series'} from this provider.</p>`;
+ B.innerHTML=rows.length?rows.map(([g,l])=>`<div class="vrow"><h3>${esc(g)}</h3><div class="vscroll">${l.slice(0,60).map(posterCard).join('')}</div></div>`).join(''):`<p class="empty">No ${W} from this provider.</p>`;
  $$('#vodBody .poster').forEach(b=>b.onclick=()=>openDetail(items.find(v=>v.key===b.dataset.k)))}
 $$('#vodSeg button').forEach(b=>b.onclick=()=>{$$('#vodSeg button').forEach(x=>x.classList.toggle('on',x===b));S.vodType=b.dataset.t;renderVod()});
 
@@ -358,7 +359,7 @@ function fmtBlockErr(v){const f=v.fmt;const w=f.bad.join(' / ');
  showErr(`This movie's format (${w}) can't play in a web browser`,`Watch it in the CheeseTV app. Detected format: ${f.label}.`,'');
  if(v.alts?.length){const box=document.createElement('div');box.className='alts';box.innerHTML='<p><b>Try this version instead:</b></p>'+v.alts.map((a,i)=>`<button class="btn gold" data-i="${i}">&#9654; ${esc(a.name)} <small>(${esc(a.fmt.label)})</small></button>`).join('');
   $('#pErr .row')?.before(box);box.querySelectorAll('button').forEach(b=>b.onclick=()=>playVod(v.alts[+b.dataset.i]))}}
-async function findAlts(v){const p=pl();if(!S.vod||v.type!=='movie')return [];const k=titleKey(v.name),c=S.vod.movie.filter(x=>x.id!==v.id&&titleKey(x.name)===k).slice(0,4),B=`${xb(p)}/player_api.php?${xq(p)}`,out=[];
+async function findAlts(v){const p=pl();if(!S.vod?.movie||v.type!=='movie')return [];const k=titleKey(v.name),c=S.vod.movie.filter(x=>x.id!==v.id&&titleKey(x.name)===k).slice(0,4),B=`${xb(p)}/player_api.php?${xq(p)}`,out=[];
  for(const x of c){try{const inf=(await getJSON(`${B}&action=get_vod_info&vod_id=${x.id}`,'Xtream server')).info||{},f=webFmt(inf,x.ext);if(f&&f.ok)out.push({...x,fmt:f,url:`${xb(p)}/movie/${xp(p)}/${x.id}.${x.ext}`})}catch(e){}await sleep(400)}return out}
 async function openDetail(v){stopLive();const p=pl(),B=`${xb(p)}/player_api.php?${xq(p)}`;sheet('<div class="sk" style="height:220px"></div>');let info={},eps=null;
  try{if(v.type==='movie'){info=(await getJSON(`${B}&action=get_vod_info&vod_id=${v.id}`,'Xtream server')).info||{}}else{const r=await getJSON(`${B}&action=get_series_info&series_id=${v.id}`,'Xtream server');info=r.info||{};eps=r.episodes||{}}}catch(e){}
@@ -422,7 +423,7 @@ function bindRows(el,list){el.querySelectorAll('.ch').forEach(r=>r.onclick=e=>{c
 function renderList(){const list=filtered(),f=favSet();$('#clist').innerHTML=list.length?list.slice(0,2000).map((c,i)=>chRow(c,i,f)).join(''):`<p class="empty">${S.group==='★ Favorites'?'No favorites yet. Tap ☆ on a channel to add it.':'No channels here.'}</p>`;bindRows($('#clist'),list)}
 function renderSearch(){const q=$('#q').value.trim().toLowerCase(),R=$('#sres');if(!q){R.innerHTML='<p class="empty">Search your channels, what\'s on now'+(S.vod?', movies and series':'')+'.</p>';return}
  const ch=S.chans.filter(c=>c.name.toLowerCase().includes(q)||(nowProg(c)?.t||'').toLowerCase().includes(q)).slice(0,100),f=favSet();
- const v=S.vod?[...S.vod.movie,...S.vod.series].filter(x=>x.name.toLowerCase().includes(q)).slice(0,40):[];
+ const v=S.vod?[...(S.vod.movie||[]),...(S.vod.series||[])].filter(x=>x.name.toLowerCase().includes(q)).slice(0,40):[];
  R.innerHTML=(ch.length?`<h3 class="h" style="font-size:16px">Channels</h3><div class="clist">${ch.map((c,i)=>chRow(c,i,f)).join('')}</div>`:'')+(v.length?`<div class="vrow"><h3>Movies &amp; Series</h3><div class="vscroll">${v.map(posterCard).join('')}</div></div>`:'')||'<p class="empty">No matches.</p>';
  bindRows(R,ch);$$('#sres .poster').forEach(b=>b.onclick=()=>openDetail(v.find(x=>x.key===b.dataset.k)))}
 $('#q').oninput=renderSearch;
