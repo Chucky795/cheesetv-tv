@@ -171,7 +171,7 @@ const V=$('#video');const P={hls:null,ts:null,rec:null,mode:'',list:[],idx:0,vod
 const kind=u=>{const p=(u||'').split('?')[0].toLowerCase();return /\.m3u8?$/.test(p)?'hls':p.endsWith('.ts')?'ts':/\.(mp4|m4v|webm|mov|mkv|avi)$/.test(p)?'file':'unknown'};
 const hlsOK=()=>!!(window.Hls&&Hls.isSupported());
 const nativeOK=()=>!!V.canPlayType('application/vnd.apple.mpegurl');
-function teardown(){stopRecording(true);if(P.eng){try{P.eng.destroy()}catch(e){}P.eng=null}try{P.hls&&P.hls.destroy()}catch(e){}try{P.ts&&P.ts.destroy()}catch(e){}P.hls=P.ts=null;if(P.rec){P.rec.stop();if(Local.live===P.rec)Local.live=null;P.rec=null}
+function teardown(){stopRecording(true);try{V.pause()}catch(e){}if(P.eng){try{P.eng.destroy()}catch(e){}P.eng=null}try{P.hls&&P.hls.destroy()}catch(e){}try{P.ts&&P.ts.destroy()}catch(e){}P.hls=P.ts=null;if(P.rec){P.rec.stop();if(Local.live===P.rec)Local.live=null;P.rec=null}
  V.onerror=V.onplaying=null;V.removeAttribute('src');V.load()}
 function spin(on){$('#pSpin').classList.toggle('on',!!on);if(!on)status('')}
 function status(t){let e=$('#pSpinT');if(!e){e=document.createElement('b');e.id='pSpinT';e.className='pspin-t';$('#pSpin').appendChild(e);const b=document.createElement('button');b.id='pSpinB';b.className='pspin-b';b.textContent='Details';const d=document.createElement('pre');d.id='pSpinD';d.className='pspin-d';d.hidden=true;b.onclick=ev=>{ev.stopPropagation();d.hidden=!d.hidden;d.textContent=netTxt()};$('#pSpin').append(b,d)}e.textContent=t;$('#pSpinB').hidden=!t}
@@ -192,7 +192,8 @@ function netLog(d){P.net={t:new Date().toLocaleTimeString(),...d};const e=$('#pS
 const redact=u=>{try{const x=new URL(u);return x.host+x.pathname.replace(/\/live\/[^/]+\/[^/]+\//,'/live/…/…/').replace(/\/(play|hls)\/[^/]+\//,'/$1/…/')}catch(e){return String(u||'').slice(0,60)}};
 const netTxt=()=>{const n=P.net;if(!n)return 'No network errors yet.';return [`${n.t} ${n.step||''}`,n.status!==undefined?`status: ${n.status}`:'',n.err?`error: ${n.err}`:'',n.url?`url: ${redact(n.url)}`:''].filter(Boolean).join('\n')};
 async function start(urls,live){
- const tok=++P.token;teardown();spin(true);$('#pErr').hidden=true;P.live=live;P.net=null;
+ const tok=++P.token,had=!!(P.hls||P.ts||P.rec||P.eng||P.recording||V.getAttribute('src'));teardown();spin(true);$('#pErr').hidden=true;$('#mini').hidden=true;P.live=live;P.net=null;
+ if(had){status('Closing the previous stream…');await sleep(1000);if(tok!==P.token)return} // 1-connection plans: the old stream must be fully closed first
  const T0=Date.now(),DEADLINE=60000,fresh=()=>tok===P.token&&Date.now()-T0<DEADLINE;status('Connecting…');let lastErr=null;
  // 1) simplest first: plain hls.js (or native HLS), 2) direct .ts via mpegts.js, 3) native <video>. Pause & rewind (local segment store) only when the user wants it.
  const steps=[];
@@ -223,8 +224,9 @@ async function start(urls,live){
   if(how==='ts'){status(busy?`Waiting for your provider to free your connection… (${busy})`:'Starting stream…');if(await tryTs(u,tok))return setMode('ts');lastErr=P.lastErr||lastErr;
    // quick refusal = the provider's 1-connection slot is still held (error 458 / 407); wait and retry the same stream
    if(Date.now()-ta<4000&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'busy (458/407)'};await sleep(3000);si--;}continue}
-  if(how==='file'){status('Opening movie…');if(await tryNative(u,tok,30000))return setMode('vod');lastErr=P.lastErr||lastErr;
-   if(Date.now()-ta<4000&&busy<8&&fresh()){busy++;status(`Waiting for your provider to free your connection… (${busy})`);teardown();await sleep(3000);si--;continue} // quick refusal: 1-connection slot still held
+  if(how==='file'){status('Opening movie…');if(await tryNative(u,tok,20000))return setMode('vod');lastErr=P.lastErr||lastErr;
+   if(Date.now()-ta<4000&&busy<4&&fresh()){busy++;status(`Waiting for your provider to free your connection… (${busy})`);teardown();await sleep(3000);si--;continue} // quick refusal: 1-connection slot still held
+   if(fresh()){teardown();status('Trying the single-connection player…');await sleep(1000);if(await tryEngine(u,tok))return setMode('vod');lastErr=P.lastErr||lastErr}
    const fmt=/media error 3/.test(lastErr?.d||'');
    lastErr=fmt?{t:"This movie's format can't play in a browser",m:"This file uses a video format (for example HEVC/H.265 10-bit) that this browser can't play. Use the CheeseTV Android / Google TV app or Roku, or pick another version of this title (MP4) if your provider lists one.",d:lastErr?.d}
     :{t:"This movie couldn't start",m:"Your provider allows 1 connection at a time, so close other devices using your login, wait a minute and try again. If it still fails, this file's format (for example MKV or HEVC/H.265) can't play in a browser: use the CheeseTV Android / Google TV app or Roku, or pick the MP4 version if your provider lists one.",d:lastErr?.d};continue}
@@ -358,7 +360,7 @@ function fmtBlockErr(v){const f=v.fmt;const w=f.bad.join(' / ');
   $('#pErr .row')?.before(box);box.querySelectorAll('button').forEach(b=>b.onclick=()=>playVod(v.alts[+b.dataset.i]))}}
 async function findAlts(v){const p=pl();if(!S.vod||v.type!=='movie')return [];const k=titleKey(v.name),c=S.vod.movie.filter(x=>x.id!==v.id&&titleKey(x.name)===k).slice(0,4),B=`${xb(p)}/player_api.php?${xq(p)}`,out=[];
  for(const x of c){try{const inf=(await getJSON(`${B}&action=get_vod_info&vod_id=${x.id}`,'Xtream server')).info||{},f=webFmt(inf,x.ext);if(f&&f.ok)out.push({...x,fmt:f,url:`${xb(p)}/movie/${xp(p)}/${x.id}.${x.ext}`})}catch(e){}await sleep(400)}return out}
-async function openDetail(v){const p=pl(),B=`${xb(p)}/player_api.php?${xq(p)}`;sheet('<div class="sk" style="height:220px"></div>');let info={},eps=null;
+async function openDetail(v){stopLive();const p=pl(),B=`${xb(p)}/player_api.php?${xq(p)}`;sheet('<div class="sk" style="height:220px"></div>');let info={},eps=null;
  try{if(v.type==='movie'){info=(await getJSON(`${B}&action=get_vod_info&vod_id=${v.id}`,'Xtream server')).info||{}}else{const r=await getJSON(`${B}&action=get_series_info&series_id=${v.id}`,'Xtream server');info=r.info||{};eps=r.episodes||{}}}catch(e){}
  const fm=v.type==='movie'?webFmt(info,v.ext):null;v.fmt=fm;
  const res=S.resume[v.key],plot=info.plot||info.description||v.plot||'',rating=info.rating||v.rating,yr=(info.releasedate||info.releaseDate||'').slice(0,4);
@@ -372,11 +374,17 @@ async function openDetail(v){const p=pl(),B=`${xb(p)}/player_api.php?${xq(p)}`;s
    $$('#dEps .ep').forEach(el=>el.onclick=()=>{const e=eps[s].find(x=>String(x.id)===el.dataset.id),k='e'+v.id+':'+e.id;closeSheet();playVod({type:'ep',fmt:webFmt(e.info,e.container_extension),name:`${v.name} · S${s}E${e.episode_num}`,img:v.img,key:k,url:`${xb(p)}/series/${xp(p)}/${e.id}.${e.container_extension||'mp4'}`},S.resume[k]?.t)})};
   $$('#dSeas button').forEach(b=>b.onclick=()=>{$$('#dSeas button').forEach(x=>x.classList.toggle('on',x===b));show(b.dataset.s)});show(Object.keys(eps).sort((a,b)=>a-b)[0])}}
 /* In-browser engine (lazy): demux MKV/MP4, decode Dolby audio in WASM, re-encode, remux to MSE. One sequential connection. */
+// fallback for plain files the <video> element can't open (moov at the end needs a 2nd parallel request; untagged MKV): demux over one connection
+async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=13')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
+ if(tok!==P.token)return false;try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
+ const w=waitPlaying(tok,40000);let failed=null;
+ try{P.eng=await E.open(V,u,{start:P.vodStart||0,ctx:P.actx,onStatus:t=>{if(tok===P.token&&t)status(t)},onError:e=>{failed=e;P.failNow&&P.failNow({t:"This movie couldn't start",m:'The single-connection player could not read this file.',d:'engine: '+redact(String(e&&e.message||e))})}})}catch(e){return false}
+ if(tok!==P.token)return false;V.play().catch(()=>{});const ok=await w;if(!ok&&P.eng){try{P.eng.destroy()}catch(e){}P.eng=null}return ok}
 async function playEngine(v,at){const tok=++P.token;teardown();$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;
  try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  spin(true);status('Loading the beta player…');let E;
- try{E=await import('/vendor/ctv-engine.js?v=12')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
+ try{E=await import('/vendor/ctv-engine.js?v=13')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
  if(tok!==P.token)return;const c=await E.canHandle(v.fmt.vc,v.fmt.ac);if(tok!==P.token)return;
  if(!c.ok){fmtBlockErr({...v,fmt:{...v.fmt,bad:[...v.fmt.bad,c.why]}});return}
  try{P.eng=await E.open(V,v.url,{start:at||0,ctx:P.actx,onStatus:t=>{if(tok===P.token){if(t){spin(true);status(t)}else spin(false)}},
@@ -393,7 +401,10 @@ function groupsFor(){const r=(S.recent[pl()?.id]||[]).length;return ['All','★ 
 function filtered(){const f=favSet(),g=S.group;if(g==='Recent'){const m=new Map(S.chans.map(c=>[ckey(c),c]));return (S.recent[pl().id]||[]).map(k=>m.get(k)).filter(Boolean)}
  return S.chans.filter(c=>g==='★ Favorites'?f.has(ckey(c)):g==='All'||c.group===g)}
 function chips(el){const g=groupsFor();el.innerHTML=g.map(x=>`<button class="${x===S.group?'on':''}">${esc(x)}</button>`).join('');[...el.children].forEach((b,i)=>b.onclick=()=>{S.group=g[i];render()})}
-function render(){if(!pl()||$('#shell').hidden)return;
+// XCIPTV-style: browsing Movies/Series frees the provider's single connection. Live stops fully; it resumes only when a channel is tapped.
+function stopLive(){if(P.vod&&!$('#player').hidden)return;const on=!!(P.hls||P.ts||P.rec||P.eng||V.getAttribute('src'));if(!on&&$('#player').hidden)return;
+ P.token++;teardown();$('#mini').hidden=true;if(!$('#player').hidden&&!P.vod)closePlayer()}
+function render(){if(!pl()||$('#shell').hidden)return;if(S.view==='vod')stopLive();
  $$('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===S.view));
  for(const [v,id] of [['guide','vGuide'],['chans','vChans'],['recs','vRecs'],['vod','vVod'],['search','vSearch']])$('#'+id).hidden=S.view!==v;
  if(S.view==='guide'){renderHero();chips($('#groups'));renderGuide()}else if(S.view==='chans'){chips($('#groups2'));renderList()}else if(S.view==='recs')renderRecs();else if(S.view==='vod')renderVod();else if(S.view==='search')renderSearch()}
