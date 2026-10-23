@@ -471,7 +471,7 @@ async function openDetail(v){stopLive();const p=pl(),B=`${xb(p)}/player_api.php?
   $$('#dSeas button').forEach(b=>b.onclick=()=>{$$('#dSeas button').forEach(x=>x.classList.toggle('on',x===b));show(b.dataset.s)});show(Object.keys(eps).sort((a,b)=>a-b)[0])}}
 /* In-browser engine (lazy): demux MKV/MP4, decode Dolby audio in WASM, re-encode, remux to MSE. One sequential connection. */
 // fallback for plain files the <video> element can't open (moov at the end needs a 2nd parallel request; untagged MKV): demux over one connection
-async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=19')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
+async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=20')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
  if(tok!==P.token)return false;try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  const w=waitPlaying(tok,40000);let failed=null;
  try{P.eng=await E.open(V,u,{start:P.vodStart||0,ctx:P.actx,onStatus:t=>{if(tok===P.token&&t)status(t)},onError:e=>{failed=e;P.failNow&&P.failNow({t:"This movie couldn't start",m:'The single-connection player could not read this file.',d:'engine: '+redact(String(e&&e.message||e))})}})}catch(e){return false}
@@ -480,7 +480,7 @@ async function playEngine(v,at){const tok=++P.token;teardown();$('#pRec').hidden
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;
  try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  spin(true);status('Loading the beta player…');let E;
- try{E=await import('/vendor/ctv-engine.js?v=19')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
+ try{E=await import('/vendor/ctv-engine.js?v=20')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
  if(tok!==P.token)return;const c=await E.canHandle(v.fmt.vc,v.fmt.ac);if(tok!==P.token)return;
  if(!c.ok){fmtBlockErr({...v,fmt:{...v.fmt,bad:[...v.fmt.bad,c.why]}});return}
  try{P.eng=await E.open(V,v.url,{start:at||0,ctx:P.actx,onStatus:t=>{if(tok===P.token){if(t){spin(true);status(t)}else spin(false)}},
@@ -526,9 +526,13 @@ function toggleFav(c){const w=WD(),k=ckey(c),x=w.favC.indexOf(k);x<0?w.favC.unsh
 function favToast(on,c){toast(on?`★ ${c.name} saved to Favorites`:`Removed ${c.name} from Favorites`)}
 function updFavBtn(){const b=$('#pFavC');if(!b)return;const c=S.cur,on=!P.vod&&c&&favSet().has(ckey(c));b.hidden=!!P.vod||!c;b.classList.toggle('on',!!on);b.innerHTML=on?'&#9733;':'&#9734;';b.setAttribute('aria-label',on?'Remove from Favorites':'Add to Favorites')}
 // long-press a Guide/Channels row to add or remove the channel from Favorites
-function longPress(el,fn){let t=null,sx=0,sy=0;el.addEventListener('pointerdown',e=>{sx=e.clientX;sy=e.clientY;clearTimeout(t);t=setTimeout(()=>{t=null;el.dataset.lp=1;navigator.vibrate?.(30);fn()},550)});
- const cancel=()=>{clearTimeout(t);t=null};el.addEventListener('pointerup',cancel);el.addEventListener('pointercancel',cancel);el.addEventListener('pointermove',e=>{if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>10)cancel()});el.addEventListener('contextmenu',e=>e.preventDefault())}
-const lpDone=el=>{if(el.dataset.lp){delete el.dataset.lp;return true}return false};
+function longPress(el,fn){let t=null,sx=0,sy=0;el.addEventListener('pointerdown',e=>{sx=e.clientX;sy=e.clientY;clearTimeout(t);t=setTimeout(()=>{t=null;el.dataset.lp=1;window.__lpAt=Date.now();navigator.vibrate?.(30);fn()},550)});
+ const cancel=()=>{clearTimeout(t);t=null};el.addEventListener('pointerup',cancel);el.addEventListener('pointermove',e=>{if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>10)cancel()});
+ // touch: Chrome fires pointercancel when the page starts scrolling, and contextmenu on a long hold. Scroll = cancel; long hold = fire now.
+ el.addEventListener('pointercancel',()=>setTimeout(()=>{if(t&&window.__lpScroll)cancel()},0));el.addEventListener('contextmenu',e=>{e.preventDefault();if(t){cancel();el.dataset.lp=1;window.__lpAt=Date.now();navigator.vibrate?.(30);fn()}})}
+window.addEventListener('scroll',()=>{window.__lpScroll=1;clearTimeout(window.__lpT);window.__lpT=setTimeout(()=>window.__lpScroll=0,150)},{passive:true,capture:true});
+// the row is redrawn by the long-press, so the click that follows lands on a new element: suppress by time, not by element
+const lpDone=el=>{if(el.dataset.lp||Date.now()-(window.__lpAt||0)<900){delete el.dataset.lp;window.__lpAt=0;return true}return false};
 $$('#tabs button').forEach(b=>b.onclick=()=>{const was=S.view;S.view=b.dataset.v;if(S.view!==was){if(S.view==='guide'&&history.state?.ctv==='tab'){history.back();return}if(S.view!=='guide')history.state?.ctv==='tab'?history.replaceState({ctv:'tab'},''):hpush('tab')}if(S.view==='vod'&&pl()?.type!=='xt')S.view='guide';render();if(S.view==='search')setTimeout(()=>$('#q').focus(),50);window.scrollTo({top:0,behavior:'smooth'})});
 $('#home').onclick=e=>{e.preventDefault();if(S.view!=='guide'&&history.state?.ctv==='tab'){history.back();return}S.view='guide';render()};
 $('#pFavHint')&&0;
@@ -626,7 +630,7 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
 })();
 
 /* ---------- version + stale-cache check (v18) ---------- */
-const APPV=19;
+const APPV=20;
 async function verCheck(){try{const r=await fetch('/version.json?n='+Date.now(),{cache:'no-store'});if(!r.ok)return;const v=+(await r.json()).v;
  if(v>APPV&&sessionStorage.getItem('ctv.vr')!==String(v)){sessionStorage.setItem('ctv.vr',String(v));const u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}catch(e){}}
 verCheck();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&$('#player').hidden)verCheck()});
@@ -684,4 +688,4 @@ async function sepgWork(p){S.sepgN=(S.sepgN||0)+1;try{while(S.sepgQ.length&&pl()
   try{const r=await getJSON(`${xb(p)}/player_api.php?${xq(p)}&action=get_short_epg&stream_id=${encodeURIComponent(sid)}&limit=6`,'Xtream server');
    S.sepg[c.id]=(r?.epg_listings||[]).map(e=>({a:(+e.start_timestamp||Date.parse(e.start))*((+e.start_timestamp)?1000:1),b:(+e.stop_timestamp||Date.parse(e.end||e.stop))*((+e.stop_timestamp)?1000:1),t:b64(e.title),d:b64(e.description)})).filter(e=>e.a&&e.b&&e.t).sort((x,y)=>x.a-y.a)}
   catch(e){S.sepg[c.id]=[]}
-  clearTimeout(S.sepgT);S.sepgT=setTimeout(()=>{if(!$('#shell').hidden&&S.view==='guide'){const sl=$('#guide').scrollTop;renderGuide();$('#guide').scrollTop=sl}},400)}}finally{S.sepgN--}}
+  clearTimeout(S.sepgT);S.sepgT=setTimeout(()=>{if(!$('#shell').hidden&&S.view==='guide'){const sl=$('#guide').scrollLeft,y=window.scrollY;renderGuide();$('#guide').scrollLeft=sl;window.scrollTo(0,y)}},400)}}finally{S.sepgN--}}
