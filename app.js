@@ -171,7 +171,7 @@ const V=$('#video');const P={hls:null,ts:null,rec:null,mode:'',list:[],idx:0,vod
 const kind=u=>{const p=(u||'').split('?')[0].toLowerCase();return /\.m3u8?$/.test(p)?'hls':p.endsWith('.ts')?'ts':/\.(mp4|m4v|webm|mov|mkv|avi)$/.test(p)?'file':'unknown'};
 const hlsOK=()=>!!(window.Hls&&Hls.isSupported());
 const nativeOK=()=>!!V.canPlayType('application/vnd.apple.mpegurl');
-function teardown(){stopRecording(true);try{P.hls&&P.hls.destroy()}catch(e){}try{P.ts&&P.ts.destroy()}catch(e){}P.hls=P.ts=null;if(P.rec){P.rec.stop();if(Local.live===P.rec)Local.live=null;P.rec=null}
+function teardown(){stopRecording(true);if(P.eng){try{P.eng.destroy()}catch(e){}P.eng=null}try{P.hls&&P.hls.destroy()}catch(e){}try{P.ts&&P.ts.destroy()}catch(e){}P.hls=P.ts=null;if(P.rec){P.rec.stop();if(Local.live===P.rec)Local.live=null;P.rec=null}
  V.onerror=V.onplaying=null;V.removeAttribute('src');V.load()}
 function spin(on){$('#pSpin').classList.toggle('on',!!on);if(!on)status('')}
 function status(t){let e=$('#pSpinT');if(!e){e=document.createElement('b');e.id='pSpinT';e.className='pspin-t';$('#pSpin').appendChild(e);const b=document.createElement('button');b.id='pSpinB';b.className='pspin-b';b.textContent='Details';const d=document.createElement('pre');d.id='pSpinD';d.className='pspin-d';d.hidden=true;b.onclick=ev=>{ev.stopPropagation();d.hidden=!d.hidden;d.textContent=netTxt()};$('#pSpin').append(b,d)}e.textContent=t;$('#pSpinB').hidden=!t}
@@ -347,8 +347,10 @@ function webFmt(inf,ext){inf=inf||{};const v=inf.video||{},a=inf.audio||{},vc=St
  if(/^e?ac-?3$/.test(ac)&&!can('audio/mp4; codecs="'+(ac.startsWith('e')?'ec-3':'ac-3')+'"'))bad.push('Dolby audio');
  if(/dts|truehd|mlp/.test(ac))bad.push('DTS/TrueHD audio');
  if(/^(avi|wmv|flv)$/i.test(ext||''))bad.push(String(ext).toUpperCase());
- return {ok:!bad.length,bad,label:label+(ext?` · ${String(ext).toUpperCase()}`:'')}}
+ const eng=!!bad.length&&bad.every(b=>b==='Dolby audio')&&!!MS&&!!window.WebAssembly&&!!(window.AudioContext||window.webkitAudioContext)&&!!window.WritableStream;
+ return {ok:!bad.length,bad,eng,vc,ac,label:label+(ext?` · ${String(ext).toUpperCase()}`:'')}}
 const titleKey=n=>String(n||'').replace(/^[A-Z0-9+]{1,4}\s*-\s*/i,'').replace(/\s+/g,' ').trim().toLowerCase();
+const BETA='<span class="apponly beta" title="Plays in the browser with audio conversion (beta)">Beta</span>';
 const APP_ONLY='<span class="apponly" title="This format can\'t play in a web browser">App only</span>';
 function fmtBlockErr(v){const f=v.fmt;const w=f.bad.join(' / ');
  showErr(`This movie's format (${w}) can't play in a web browser`,`Watch it in the CheeseTV app. Detected format: ${f.label}.`,'');
@@ -360,16 +362,28 @@ async function openDetail(v){const p=pl(),B=`${xb(p)}/player_api.php?${xq(p)}`;s
  try{if(v.type==='movie'){info=(await getJSON(`${B}&action=get_vod_info&vod_id=${v.id}`,'Xtream server')).info||{}}else{const r=await getJSON(`${B}&action=get_series_info&series_id=${v.id}`,'Xtream server');info=r.info||{};eps=r.episodes||{}}}catch(e){}
  const fm=v.type==='movie'?webFmt(info,v.ext):null;v.fmt=fm;
  const res=S.resume[v.key],plot=info.plot||info.description||v.plot||'',rating=info.rating||v.rating,yr=(info.releasedate||info.releaseDate||'').slice(0,4);
- let h=`<div class="shd"><h3>${esc(v.name)}</h3><button class="ic" onclick="closeSheet()">&#10005;</button></div><div class="det"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}"></div><div><div class="meta">${[rating&&`★ ${esc(rating)}`,yr,info.genre&&esc(info.genre),info.duration&&esc(info.duration)].filter(Boolean).join(' · ')}${fm&&!fm.ok?' '+APP_ONLY:''}</div>${fm&&!fm.ok?`<p class="note">This movie's format (${esc(fm.bad.join(' / '))}) can't play in a web browser. Watch it in the CheeseTV app.</p>`:''}<p>${esc(plot)||'No description.'}</p>`;
+ let h=`<div class="shd"><h3>${esc(v.name)}</h3><button class="ic" onclick="closeSheet()">&#10005;</button></div><div class="det"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}"></div><div><div class="meta">${[rating&&`★ ${esc(rating)}`,yr,info.genre&&esc(info.genre),info.duration&&esc(info.duration)].filter(Boolean).join(' · ')}${fm&&!fm.ok?' '+(fm.eng?BETA:APP_ONLY):''}</div>${fm&&!fm.ok&&fm.eng?`<p class="note">This movie has Dolby audio, which browsers can't play directly. The web player decodes it on your device (beta, uses more battery; seeking takes a few seconds).</p>`:''}${fm&&!fm.ok&&!fm.eng?`<p class="note">This movie's format (${esc(fm.bad.join(' / '))}) can't play in a web browser. Watch it in the CheeseTV app.</p>`:''}<p>${esc(plot)||'No description.'}</p>`;
  if(v.type==='movie')h+=`<button class="btn gold" id="dPlay" style="width:auto">&#9654; ${res?'Resume '+fmt(res.t):'Play'}</button>${res?' <button class="btn dark" id="dStart" style="width:auto">From start</button>':''}`;
  h+='</div></div>';
  if(eps){const ss=Object.keys(eps).sort((a,b)=>a-b);h+=`<div class="chips" style="padding:12px 0 6px" id="dSeas">${ss.map((s,i)=>`<button class="${i?'':'on'}" data-s="${esc(s)}">Season ${esc(s)}</button>`).join('')}</div><div class="eps" id="dEps"></div>`}
  sheet(h);
- if(v.type==='movie'){$('#dPlay').onclick=async()=>{closeSheet();if(fm&&!fm.ok){const vv={...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`};playVod(vv);vv.alts=await findAlts(v);if(P.vod===vv&&vv.alts.length)fmtBlockErr(vv);return}playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},res?.t)};$('#dStart')&&($('#dStart').onclick=()=>{closeSheet();playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},0)})}
- if(eps){const show=s=>{$('#dEps').innerHTML=(eps[s]||[]).map(e=>{const k='e'+v.id+':'+e.id,r=S.resume[k],ef=webFmt(e.info,e.container_extension);return `<div class="ep" data-id="${esc(e.id)}"><div><b>${esc(e.episode_num)}. ${esc(e.title)}</b>${ef&&!ef.ok?' '+APP_ONLY:''}${r?`<div class="pbar" style="width:160px"><i style="width:${Math.min(100,r.t/r.d*100)}%"></i></div>`:''}</div><span style="color:var(--gold)">${r?'Resume':'&#9654;'}</span></div>`}).join('')||'<p class="note">No episodes.</p>';
+ if(v.type==='movie'){$('#dPlay').onclick=async()=>{closeSheet();if(fm&&!fm.ok&&!fm.eng){const vv={...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`};playVod(vv);vv.alts=await findAlts(v);if(P.vod===vv&&vv.alts.length)fmtBlockErr(vv);return}playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},res?.t)};$('#dStart')&&($('#dStart').onclick=()=>{closeSheet();playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},0)})}
+ if(eps){const show=s=>{$('#dEps').innerHTML=(eps[s]||[]).map(e=>{const k='e'+v.id+':'+e.id,r=S.resume[k],ef=webFmt(e.info,e.container_extension);return `<div class="ep" data-id="${esc(e.id)}"><div><b>${esc(e.episode_num)}. ${esc(e.title)}</b>${ef&&!ef.ok?' '+(ef.eng?BETA:APP_ONLY):''}${r?`<div class="pbar" style="width:160px"><i style="width:${Math.min(100,r.t/r.d*100)}%"></i></div>`:''}</div><span style="color:var(--gold)">${r?'Resume':'&#9654;'}</span></div>`}).join('')||'<p class="note">No episodes.</p>';
    $$('#dEps .ep').forEach(el=>el.onclick=()=>{const e=eps[s].find(x=>String(x.id)===el.dataset.id),k='e'+v.id+':'+e.id;closeSheet();playVod({type:'ep',fmt:webFmt(e.info,e.container_extension),name:`${v.name} · S${s}E${e.episode_num}`,img:v.img,key:k,url:`${xb(p)}/series/${xp(p)}/${e.id}.${e.container_extension||'mp4'}`},S.resume[k]?.t)})};
   $$('#dSeas button').forEach(b=>b.onclick=()=>{$$('#dSeas button').forEach(x=>x.classList.toggle('on',x===b));show(b.dataset.s)});show(Object.keys(eps).sort((a,b)=>a-b)[0])}}
+/* In-browser engine (lazy): demux MKV/MP4, decode Dolby audio in WASM, re-encode, remux to MSE. One sequential connection. */
+async function playEngine(v,at){const tok=++P.token;teardown();$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;
+ $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;
+ try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
+ spin(true);status('Loading the beta player…');let E;
+ try{E=await import('/vendor/ctv-engine.js?v=12')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
+ if(tok!==P.token)return;const c=await E.canHandle(v.fmt.vc,v.fmt.ac);if(tok!==P.token)return;
+ if(!c.ok){fmtBlockErr({...v,fmt:{...v.fmt,bad:[...v.fmt.bad,c.why]}});return}
+ try{P.eng=await E.open(V,v.url,{start:at||0,ctx:P.actx,onStatus:t=>{if(tok===P.token){if(t){spin(true);status(t)}else spin(false)}},
+  onError:e=>{if(tok===P.token){teardown();showErr("This movie couldn't play in the browser",'The beta player failed. Try again, or watch it in the CheeseTV app.',redact(String(e&&e.message||e))+` · ${v.fmt.label}`)}}});
+  if(tok!==P.token){P.eng.destroy();return}V.play().catch(()=>{})}catch(e){if(tok===P.token)showErr("This movie couldn't play in the browser",'Try again, or watch it in the CheeseTV app.',String(e))}}
 function playVod(v,at){P.vod=v;P.list=[];P.vodStart=at||0;openPlayer();$('#pName').textContent=v.name;$('#pNow').textContent=v.type==='movie'?'Movie':'Series';
+ if(v.fmt&&!v.fmt.ok&&v.fmt.eng){playEngine(v,at);return}
  if(v.fmt&&!v.fmt.ok){++P.token;teardown();$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;fmtBlockErr(v);return}
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;
  const urls=[v.url];start(urls,false).then(()=>{if(at&&P.hls)V.currentTime=at})}
