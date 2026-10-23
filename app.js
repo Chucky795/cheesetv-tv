@@ -9,7 +9,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const pl=()=>S.pls.find(p=>p.id===S.active)||S.pls[0];
 /* per-provider watch data (favorite series + last episode per series). Keyed by playlist id + server + username; never the password. */
 const wKey=()=>{const p=pl();return p?'ctv.watch.'+p.id+':'+String(p.server||'').replace(/^https?:\/\//,'').replace(/\/+$/,'')+':'+(p.user||''):''};
-const WD=()=>{const k=wKey();if(!k)return {fav:[],last:{}};if(WD.k!==k){WD.k=k;WD.d=J(k,{});WD.d.fav??=[];WD.d.favM??=[];if(!WD.d.favC){const p=pl(),o=WD.d.favC=[...(p&&S.favs[p.id])||[]].map(String);o.length&&setTimeout(()=>{o.forEach(k=>{const c=S.chans.find(x=>ckey(x)===k);pushFav(k,true,c&&{name:c.name,img:c.logo},'live')});wSave()},0)}WD.d.last??={}}return WD.d};
+const WD=()=>{const k=wKey();if(!k)return {fav:[],last:{}};if(WD.k!==k){WD.k=k;WD.d=J(k,{});WD.d.fav??=[];WD.d.favM??=[];if(!WD.d.favC){const p=pl(),ids=new Set(S.pls.map(x=>x.id)),o=WD.d.favC=[...new Set([...(p&&S.favs[p.id])||[],...Object.keys(S.favs).filter(id=>!ids.has(id)).flatMap(id=>S.favs[id]||[])].map(String))];o.length&&setTimeout(()=>{o.forEach(k=>{const c=S.chans.find(x=>ckey(x)===k);pushFav(k,true,c&&{name:c.name,img:c.logo},'live')});wSave()},0)}WD.d.last??={}}return WD.d};
 const wSave=()=>{const k=wKey();k&&LS.setItem(k,JSON.stringify(WD()))};
 const favL=t=>t==='movie'?WD().favM:WD().fav;const isFavS=(id,t)=>favL(t).includes(String(id));
 function toggleFavS(id,v,t){t=t||v?.type||'series';const L=favL(t),i=String(id),x=L.indexOf(i);x<0?L.unshift(i):L.splice(x,1);wSave();pushFav(i,x<0,v||S.vod?.[t]?.find?.(s=>String(s.id)===i),t);return x<0}
@@ -110,10 +110,10 @@ async function loadXtream(p){
  return {chans:(streams||[]).map(s=>({id:'x'+s.stream_id,num:s.num,name:s.name,logo:s.stream_icon,tvg:s.epg_channel_id||'',group:cn[s.category_id]||'Other',
   url:`${xb(p)}/live/${xp(p)}/${s.stream_id}.${p.fmt}`,alt:`${xb(p)}/live/${xp(p)}/${s.stream_id}.${p.fmt==='m3u8'?'ts':'m3u8'}`})),epg:`${xb(p)}/xmltv.php?${xq(p)}`};
 }
-async function loadActive(){syncGet();
+async function loadActive(){syncGet().then(ch=>{if(ch&&S.chans.length&&S.view!=='vod')render()});
  const p=pl();S.chans=[];S.epg={};S.epgState='';S.vod=null;
  if(!p){showSignin();return}
- S.active=p.id;$('#signin').hidden=true;$('#shell').hidden=false;$('#tabVod').hidden=p.type!=='xt';if(p.type!=='xt'&&S.view==='vod')S.view='guide';
+ S.active=p.id;S.sepg={};S.sepgQ=[];$('#signin').hidden=true;$('#shell').hidden=false;$('#tabVod').hidden=p.type!=='xt';if(p.type!=='xt'&&S.view==='vod')S.view='guide';
  skeleton();
  try{const r=p.type==='xt'?await loadXtream(p):parseM3U(await getText(p.url,'playlist'));S.chans=r.chans.map((c,i)=>({...c,n:i+1}));S.epgUrl=p.epg||r.epg||''}
  catch(e){$('#hero').innerHTML='';$('#guide').innerHTML=`<div class="perr" style="position:static;transform:none"><h4>Couldn't load "${esc(p.name)}"</h4><p>${esc(e.message)}</p><div class="row"><button class="btn gold" onclick="loadActive()">Try again</button><button class="btn dark" onclick="openSettings()">Playlists</button></div></div>`;return}
@@ -126,13 +126,13 @@ async function loadEpg(){
  if(!S.epgUrl||!S.chans.some(c=>c.tvg)){S.epgState='none';return}
  if(/\.gz(\?|$)/i.test(S.epgUrl)){S.epgState='gz';render();return}
  S.epgState='loading';
- try{const doc=new DOMParser().parseFromString(await getText(S.epgUrl,'TV guide'),'text/xml');const n=Date.now(),lo=n-3*36e5,hi=n+12*36e5,e={};
+ try{const doc=new DOMParser().parseFromString(await getText(S.epgUrl,'TV guide',null,45000),'text/xml');const n=Date.now(),lo=n-3*36e5,hi=n+12*36e5,e={};
   for(const p of doc.getElementsByTagName('programme')){const a=xt(p.getAttribute('start')||''),b=xt(p.getAttribute('stop')||'');if(b<lo||a>hi)continue;
    (e[p.getAttribute('channel')]??=[]).push({a,b,t:p.getElementsByTagName('title')[0]?.textContent||'',d:p.getElementsByTagName('desc')[0]?.textContent||''})}
   Object.values(e).forEach(v=>v.sort((x,y)=>x.a-y.a));S.epg=e;S.epgState='ok'}catch(err){S.epgState='err'}
  render();
 }
-const progs=c=>S.epg[c.tvg]||[];const nowProg=c=>{const n=Date.now();return progs(c).find(p=>p.a<=n&&p.b>n)};
+const progs=c=>S.epg[c.tvg]||S.sepg?.[c.id]||[];const nowProg=c=>{const n=Date.now();return progs(c).find(p=>p.a<=n&&p.b>n)};
 
 /* ---------- IndexedDB segment store (timeshift + recordings) ---------- */
 const DB={db:null,open(){return this.db||(this.db=new Promise((res,rej)=>{const r=indexedDB.open('cheesetv',1);r.onupgradeneeded=()=>{r.result.createObjectStore('segs');r.result.createObjectStore('recs',{keyPath:'id'})};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}))},
@@ -471,7 +471,7 @@ async function openDetail(v){stopLive();const p=pl(),B=`${xb(p)}/player_api.php?
   $$('#dSeas button').forEach(b=>b.onclick=()=>{$$('#dSeas button').forEach(x=>x.classList.toggle('on',x===b));show(b.dataset.s)});show(Object.keys(eps).sort((a,b)=>a-b)[0])}}
 /* In-browser engine (lazy): demux MKV/MP4, decode Dolby audio in WASM, re-encode, remux to MSE. One sequential connection. */
 // fallback for plain files the <video> element can't open (moov at the end needs a 2nd parallel request; untagged MKV): demux over one connection
-async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=18')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
+async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=19')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
  if(tok!==P.token)return false;try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  const w=waitPlaying(tok,40000);let failed=null;
  try{P.eng=await E.open(V,u,{start:P.vodStart||0,ctx:P.actx,onStatus:t=>{if(tok===P.token&&t)status(t)},onError:e=>{failed=e;P.failNow&&P.failNow({t:"This movie couldn't start",m:'The single-connection player could not read this file.',d:'engine: '+redact(String(e&&e.message||e))})}})}catch(e){return false}
@@ -480,7 +480,7 @@ async function playEngine(v,at){const tok=++P.token;teardown();$('#pRec').hidden
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;
  try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  spin(true);status('Loading the beta player…');let E;
- try{E=await import('/vendor/ctv-engine.js?v=18')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
+ try{E=await import('/vendor/ctv-engine.js?v=19')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
  if(tok!==P.token)return;const c=await E.canHandle(v.fmt.vc,v.fmt.ac);if(tok!==P.token)return;
  if(!c.ok){fmtBlockErr({...v,fmt:{...v.fmt,bad:[...v.fmt.bad,c.why]}});return}
  try{P.eng=await E.open(V,v.url,{start:at||0,ctx:P.actx,onStatus:t=>{if(tok===P.token){if(t){spin(true);status(t)}else spin(false)}},
@@ -509,10 +509,10 @@ function renderHero(){const rk=(S.recent[pl().id]||[])[0],c=S.chans.find(x=>ckey
  $('#heroGo').onclick=()=>{const l=filtered().includes(c)?filtered():S.chans;playChannel(l.indexOf(c),l)}}
 function renderGuide(){const G=$('#guide'),list=filtered(),PX=4.6/60000,n=Date.now(),t0=Math.floor(n/18e5)*18e5,W=8*36e5*PX;
  if(!list.length){G.innerHTML=`<p class="empty">${S.group==='★ Favorites'?'No favorite channels yet. Tap ☆ in the player, or long-press a channel, to add it here.':'No channels here.'}</p>`;return}
- const note=S.epgState==='loading'?'Loading TV guide…':S.epgState==='gz'?'Guide file is .gz (compressed); browsers can’t open it.':S.epgState==='err'?'TV guide couldn’t load (CORS/offline).':S.epgState==='none'?'No guide info':'';
+ const note=S.epgState==='loading'?'Loading TV guide…':S.epgState==='gz'||S.epgState==='err'?'No guide info':S.epgState==='none'?'No guide info':'';
  let h=`<div class="ghead"><div class="gch">${hm(n).replace(/ /,'&nbsp;')}</div><div class="gtl" style="width:${W}px">${Array.from({length:16},(_,i)=>`<span style="left:${i*18e5*PX+6}px">${hm(t0+i*18e5)}</span>`).join('')}</div></div>`;
  const fs=favSet();h+=(S.group==='★ Favorites'?list:list.slice(0,400)).map((c,i)=>{const ps=progs(c).filter(p=>p.b>t0&&p.a<t0+8*36e5);return `<div class="grow" data-i="${i}"><div class="gch">${logo(c)}<span class="nm">${esc(c.name)}</span>${fs.has(ckey(c))?'<i class="gstar" aria-label="Favorite">&#9733;</i>':''}</div><div class="gtl" style="width:${W}px"><div class="nowline" style="left:${(n-t0)*PX}px"></div>${ps.length?ps.map(p=>{const l=Math.max(0,(p.a-t0)*PX),w=(Math.min(p.b,t0+8*36e5)-Math.max(p.a,t0))*PX-5;return `<div class="gp ${p.a<=n&&p.b>n?'now':''}" style="left:${l}px;width:${w}px">${esc(p.t)}<small>${hm(p.a)} – ${hm(p.b)}</small></div>`}).join(''):`<div class="gp noepg" style="left:0;width:${W-5}px">${esc(c.name)}<small>${note||'No guide info'} · Tap to watch</small></div>`}</div></div>`}).join('');
- G.innerHTML=h;$$('#guide .grow').forEach(r=>{longPress(r,()=>{const c=list[r.dataset.i];favToast(toggleFav(c),c);renderGuide()});r.onclick=()=>{if(lpDone(r))return;playChannel(+r.dataset.i,list)}});G.scrollLeft=0}
+ G.innerHTML=h;shortEpg(list.slice(0,40));$$('#guide .grow').forEach(r=>{longPress(r,()=>{const c=list[r.dataset.i];favToast(toggleFav(c),c);renderGuide()});r.onclick=()=>{if(lpDone(r))return;playChannel(+r.dataset.i,list)}});G.scrollLeft=0}
 function chRow(c,i,f){const np=nowProg(c);const pr=np?Math.min(100,(Date.now()-np.a)/(np.b-np.a)*100):0;return `<div class="ch" data-i="${i}"><span class="num">${esc(c.num||c.n)}</span>${logo(c)}<div class="t"><b>${esc(c.name)}</b>${np?`<small class="now">${esc(np.t)}</small><div class="pbar"><i style="width:${pr}%"></i></div>`:`<small>${esc(c.group)}</small>`}</div><button class="star ${f.has(ckey(c))?'on':''}" aria-label="Favorite">${f.has(ckey(c))?'★':'☆'}</button></div>`}
 function bindRows(el,list){el.querySelectorAll('.ch').forEach(r=>{const c=list[r.dataset.i];longPress(r,()=>{favToast(toggleFav(c),c);S.view==='search'?renderSearch():render()});r.onclick=e=>{if(lpDone(r))return;if(e.target.closest('.star')){e.stopPropagation();favToast(toggleFav(c),c);S.view==='search'?renderSearch():render()}else playChannel(+r.dataset.i,list)}})}
 function renderList(){const list=filtered(),f=favSet();$('#clist').innerHTML=list.length?(S.group==='★ Favorites'?list:list.slice(0,2000)).map((c,i)=>chRow(c,i,f)).join(''):`<p class="empty">${S.group==='★ Favorites'?'No favorite channels yet. Tap ☆ or long-press a channel to add it.':'No channels here.'}</p>`;bindRows($('#clist'),list)}
@@ -626,7 +626,7 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
 })();
 
 /* ---------- version + stale-cache check (v18) ---------- */
-const APPV=18;
+const APPV=19;
 async function verCheck(){try{const r=await fetch('/version.json?n='+Date.now(),{cache:'no-store'});if(!r.ok)return;const v=+(await r.json()).v;
  if(v>APPV&&sessionStorage.getItem('ctv.vr')!==String(v)){sessionStorage.setItem('ctv.vr',String(v));const u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}catch(e){}}
 verCheck();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&$('#player').hidden)verCheck()});
@@ -674,3 +674,14 @@ document.addEventListener('visibilitychange',()=>{clearTimeout(H.hid);
  if(document.hidden){if($('#player').hidden)return;H.hid=setTimeout(()=>{if(P.vod){savePos();try{V.pause()}catch(e){}P.bg='movie'}else if(streaming()||P.bg==='retry'){P.token++;teardown();spin(false);P.bg='live'}},H.bgMs||60000);return}
  if($('#player').hidden||P.bg==='tab')return;
  if(P.bg==='live'||P.bg==='retry'){P.bg=null;resumeHere()}else if(P.bg==='movie'){P.bg=null;tabClaim();V.play().catch(()=>resumeHere())}});
+
+/* ---------- per-channel guide fallback (v19): Xtream get_short_epg, a few at a time, only for rows on screen ---------- */
+const b64=s=>{try{return decodeURIComponent(escape(atob(s||'')))}catch(e){try{return atob(s||'')}catch(x){return String(s||'')}}};
+function shortEpg(list){const p=pl();if(!p||p.type!=='xt'||S.epgState==='loading')return;S.sepg??={};S.sepgQ??=[];
+ for(const c of list)if(c.id&&!(S.epg[c.tvg]?.length)&&!(c.id in S.sepg)){S.sepg[c.id]=null;S.sepgQ.push(c)}
+ for(let k=S.sepgN||0;k<3&&S.sepgQ.length;k++)sepgWork(p)}
+async function sepgWork(p){S.sepgN=(S.sepgN||0)+1;try{while(S.sepgQ.length&&pl()===p){const c=S.sepgQ.shift(),sid=String(c.id).replace(/^x/,'');
+  try{const r=await getJSON(`${xb(p)}/player_api.php?${xq(p)}&action=get_short_epg&stream_id=${encodeURIComponent(sid)}&limit=6`,'Xtream server');
+   S.sepg[c.id]=(r?.epg_listings||[]).map(e=>({a:(+e.start_timestamp||Date.parse(e.start))*((+e.start_timestamp)?1000:1),b:(+e.stop_timestamp||Date.parse(e.end||e.stop))*((+e.stop_timestamp)?1000:1),t:b64(e.title),d:b64(e.description)})).filter(e=>e.a&&e.b&&e.t).sort((x,y)=>x.a-y.a)}
+  catch(e){S.sepg[c.id]=[]}
+  clearTimeout(S.sepgT);S.sepgT=setTimeout(()=>{if(!$('#shell').hidden&&S.view==='guide'){const sl=$('#guide').scrollTop;renderGuide();$('#guide').scrollTop=sl}},400)}}finally{S.sepgN--}}
