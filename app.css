@@ -160,3 +160,7 @@ main{max-width:1400px;margin:0 auto}
 .vpn-set{margin:6px 0 14px;padding:10px 12px;border:1px solid #d4a01766;border-radius:12px;background:#0d0d0d;font-size:13px;line-height:1.45}.vpn-set b{color:#f5c542}.vpn-set a{color:#ffd76a;font-weight:600}
 .apponly{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:999px;background:#000;border:1px solid #d4a017;color:#f5c542;font:700 11px system-ui;vertical-align:middle;letter-spacing:.3px}.alts{margin:10px 0}.alts p{margin:0 0 6px}.alts .btn{display:block;width:100%;margin:6px 0;text-align:left}.alts small{opacity:.75}
 .apponly.beta{border-color:#3b82f6;color:#93c5fd}
+
+.perr .row+.row{margin-top:8px}.cb.vlcb span,.cb.vlcb{color:var(--gold);font-weight:800;display:flex!important;font-size:13px}
+.poster{position:relative}.poster .heart{position:absolute;top:6px;right:6px;width:30px;height:30px;border-radius:50%;background:#000a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;z-index:2}.heart.on{color:#ff4d6d}
+.shd .heart{position:static;font-size:24px;color:#fff;cursor:pointer;margin-left:auto;margin-right:10px;background:none}.shd .heart.on{color:#ff4d6d}.wchk{color:#3ddc84}.cw{color:var(--gold)}
