@@ -9,7 +9,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const pl=()=>S.pls.find(p=>p.id===S.active)||S.pls[0];
 /* per-provider watch data (favorite series + last episode per series). Keyed by playlist id + server + username; never the password. */
 const wKey=()=>{const p=pl();return p?'ctv.watch.'+p.id+':'+String(p.server||'').replace(/^https?:\/\//,'').replace(/\/+$/,'')+':'+(p.user||''):''};
-const WD=()=>{const k=wKey();if(!k)return {fav:[],last:{}};if(WD.k!==k){WD.k=k;WD.d=J(k,{});WD.d.fav??=[];WD.d.favM??=[];WD.d.last??={}}return WD.d};
+const WD=()=>{const k=wKey();if(!k)return {fav:[],last:{}};if(WD.k!==k){WD.k=k;WD.d=J(k,{});WD.d.fav??=[];WD.d.favM??=[];if(!WD.d.favC){const p=pl(),o=WD.d.favC=[...(p&&S.favs[p.id])||[]].map(String);o.length&&setTimeout(()=>{o.forEach(k=>{const c=S.chans.find(x=>ckey(x)===k);pushFav(k,true,c&&{name:c.name,img:c.logo},'live')});wSave()},0)}WD.d.last??={}}return WD.d};
 const wSave=()=>{const k=wKey();k&&LS.setItem(k,JSON.stringify(WD()))};
 const favL=t=>t==='movie'?WD().favM:WD().fav;const isFavS=(id,t)=>favL(t).includes(String(id));
 function toggleFavS(id,v,t){t=t||v?.type||'series';const L=favL(t),i=String(id),x=L.indexOf(i);x<0?L.unshift(i):L.splice(x,1);wSave();pushFav(i,x<0,v||S.vod?.[t]?.find?.(s=>String(s.id)===i),t);return x<0}
@@ -59,7 +59,7 @@ function pushFav(id,on,v,t='series'){qPush('f:'+t+':'+id,{fn:'sync_set_favorite'
 async function syncGet(){if(SY.g)return SY.g;SY.g=(async()=>{try{await flushQ();const k=await sKey();if(!k)return false;const r=await rpc('sync_get',{p_key:k});if(!r||r.bad||!r.progress)return false;
  const w=WD(),q=w.q||{};let ch=false;
  // favorites: server list wins, except toggles still waiting to be pushed
-  for(const [t,F] of [['series','fav'],['movie','favM']]){const fav=new Set((r.favorites||[]).filter(f=>f.item_type===t).map(f=>String(f.item_id))),pre='f:'+t+':';
+  for(const [t,F] of [['series','fav'],['movie','favM'],['live','favC']]){const fav=new Set((r.favorites||[]).filter(f=>f.item_type===t).map(f=>String(f.item_id))),pre='f:'+t+':';
  for(const id in q)if(id.startsWith(pre)){const i=id.slice(pre.length);q[id].a.p_fav?fav.add(i):fav.delete(i)}
  const nf=[...w[F].filter(i=>fav.has(i)),...[...fav].filter(i=>!w[F].includes(i))];if(nf.join()!==w[F].join()){w[F]=nf;ch=true}}
  // progress: newest updated_at wins
@@ -74,7 +74,7 @@ window.addEventListener('online',()=>flushQ());
 function noteLast(v,t,d){if(!v||!v.sid)return;const w=WD(),o=w.last[v.sid]||{};w.last[v.sid]={s:v.s,e:v.e,epId:v.epId,ext:v.ext,title:v.title||'',name:v.sname,img:v.img,t:t??(o.epId===v.epId?o.t:0)??0,d:d??(o.epId===v.epId?o.d:0)??0,at:Date.now()};wSave()}
 const isMixed=u=>location.protocol==='https:'&&/^http:\/\//i.test(u||'');
 const IOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-const ckey=c=>c.id||c.url;const favSet=()=>new Set(S.favs[pl()?.id]||[]);
+const ckey=c=>String(c.id||c.url);const favSet=()=>new Set(WD().favC||[]);
 const hm=t=>new Date(t).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
 const fmt=s=>{s=Math.max(0,Math.round(s));const h=s/3600|0,m=(s%3600)/60|0,x=s%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0')};
 const initials=n=>(n||'TV').replace(/\(.*?\)|\[.*?\]/g,'').trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase();
@@ -240,7 +240,7 @@ function teardown(){stopRecording(true);try{V.pause()}catch(e){}if(P.eng){try{P.
  V.onerror=V.onplaying=null;V.removeAttribute('src');V.load()}
 function spin(on){$('#pSpin').classList.toggle('on',!!on);if(!on)status('')}
 function status(t){let e=$('#pSpinT');if(!e){e=document.createElement('b');e.id='pSpinT';e.className='pspin-t';$('#pSpin').appendChild(e);const b=document.createElement('button');b.id='pSpinB';b.className='pspin-b';b.textContent='Details';const d=document.createElement('pre');d.id='pSpinD';d.className='pspin-d';d.hidden=true;b.onclick=ev=>{ev.stopPropagation();d.hidden=!d.hidden;d.textContent=netTxt()};$('#pSpin').append(b,d)}e.textContent=t;$('#pSpinB').hidden=!t}
-function showErr(title,msg,detail){spin(false);$('#pErr').innerHTML=`<h4>${esc(title)}</h4><p>${esc(msg)}</p>${detail?`<button class="pspin-b" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Details</button><p class="d" hidden>${esc(detail)}</p>`:''}${P.vod&&P.vod.url?`<p class="note">${IOS?'Play it in the free VLC app instead: tap Open in VLC.':ANDROID?'Play it in the free VLC app (Open in VLC), or in the CheeseTV app.':'Copy the stream link and open it in VLC (Media › Open Network Stream), or use the CheeseTV app.'} It uses your same one connection.</p><div class="row">${IOS?`<button class="btn gold vlc" id="eVlc">&#9654; Open in VLC</button><button class="btn dark" id="eRetry">Try again</button>`:`<button class="btn dark" id="eRetry">Try again</button><button class="btn gold vlc" id="eVlc">${ANDROID?'&#9654; Open in VLC':'Copy stream link'}</button>`}</div>${IOS?'':`<div class="row"><a class="btn dark" href="${APP_URL}"${ANDROID?'':' target="_blank" rel="noopener"'}>Get the app</a></div>`}<div id="eVlcGet"></div>`:`<p class="note">Channels that won't play in a browser usually still work in the CheeseTV ${IOS?'iPhone app (coming soon to the App Store)':'Android / Google TV app'} or on Roku.</p><div class="row"><button class="btn dark" id="eRetry">Try again</button><a class="btn gold" href="${APP_URL}"${ANDROID?'':' target="_blank" rel="noopener"'}>Get the app</a></div>`}`;
+function showErr(title,msg,detail){spin(false);$('#pErr').innerHTML=`<h4>${esc(title)}</h4><p>${esc(msg)}</p>${detail?`<button class="pspin-b" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">Details</button><p class="d" hidden>${esc(detail)}</p>`:''}${P.vod&&P.vod.url?`<p class="note">${IOS?'Play it in the free VLC app instead: tap Open in VLC.':ANDROID?'Play it in the free VLC app (Open in VLC), or in the CheeseTV app.':'Copy the stream link and open it in VLC (Media › Open Network Stream), or use the CheeseTV app.'} It uses your same one connection.</p><div class="row">${IOS?`<button class="btn gold vlc" id="eVlc">&#9654; Open in VLC</button><button class="btn dark" id="eRetry">Try again</button>`:`<button class="btn dark" id="eRetry">Try again</button><button class="btn gold vlc" id="eVlc">${ANDROID?'&#9654; Open in VLC':'Copy stream link'}</button>`}</div>${IOS?'':`<div class="row"><a class="btn dark" href="${APP_URL}"${ANDROID?'':' target="_blank" rel="noopener"'}>Get the app</a></div>`}<div id="eVlcGet"></div>`:`<p class="note">Channels that won't play in a browser usually still work in the CheeseTV ${IOS?'iPhone app (coming soon to the App Store)':'Android / Google TV app'} or on Roku. If CheeseTV is open in other browser tabs, close them.</p><div class="row"><button class="btn dark" id="eRetry">Try again</button><a class="btn gold" href="${APP_URL}"${ANDROID?'':' target="_blank" rel="noopener"'}>Get the app</a></div>`}`;
  $('#pErr').hidden=false;$('#eRetry').onclick=()=>P.vod?playVod(P.vod):playChannel(P.idx,P.list);$('#eVlc')&&($('#eVlc').onclick=()=>openVlc(P.vod.url,$('#eVlcGet')))}
 /* Open in VLC: hand the real movie/episode URL to the VLC app. The browser's video is fully released first (1-connection plans). */
 const VLC_IOS='https://apps.apple.com/'+'app/vlc-media-player/id650377962',VLC_PLAY='https://play.google.com/store/apps/details?id=org.videolan.vlc';
@@ -248,7 +248,7 @@ const vlcHref=u=>IOS?'vlc-x-callback://x-callback-url/stream?url='+encodeURIComp
 function openVlc(u,box,v){if(!u)return;v=v||P.vod;if(v&&v.url===u){v.sid&&noteLast(v);const r=S.resume[v.key]||{},L=v.sid&&WD().last[v.sid];pushProg(v,r.t||L?.t||0,r.d||L?.d||1)}
  if(!IOS&&!ANDROID){const ok=()=>toast('Stream link copied. In VLC: Media › Open Network Stream, then paste.',6000);
   (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(ok,()=>{window.prompt('Copy this link, then in VLC choose Media › Open Network Stream:',u)});return}
- ++P.token;teardown();spin(false);let left=false;const vis=()=>{if(document.hidden)left=true};document.addEventListener('visibilitychange',vis);window.addEventListener('pagehide',vis);
+ tabClaim();++P.token;teardown();spin(false);let left=false;const vis=()=>{if(document.hidden)left=true};document.addEventListener('visibilitychange',vis);window.addEventListener('pagehide',vis);
  location.href=vlcHref(u);
  if(IOS)setTimeout(()=>{document.removeEventListener('visibilitychange',vis);if(left||document.hidden)return;
   const g=box||document.body,h=`<p class="note">Don't have VLC? It's free on the App Store.</p><a class="btn gold" href="${VLC_IOS}" target="_blank" rel="noopener">Get VLC (free)</a>`;
@@ -257,7 +257,7 @@ function openPlayer(){if($('#player').hidden)hpush('player');$('#player').hidden
 function playChannel(i,list){
  list=list||P.list;if(!list.length)return;i=(i+list.length)%list.length;const c=list[i];P.list=list;P.idx=i;P.vod=null;S.cur=c;
  const r=S.recent[pl().id]=(S.recent[pl().id]||[]).filter(k=>k!==ckey(c));r.unshift(ckey(c));r.length=Math.min(r.length,20);save();
- openPlayer();$('#pName').textContent=(c.num||c.n?`${c.num||c.n}  `:'')+c.name;$('#pLogo').outerHTML=logo(c,'ologo').replace('class="lg','id="pLogo" class="lg');updNow();
+ openPlayer();$('#pName').textContent=(c.num||c.n?`${c.num||c.n}  `:'')+c.name;updFavBtn();$('#pLogo').outerHTML=logo(c,'ologo').replace('class="lg','id="pLogo" class="lg');updNow();
  $('#pRec').hidden=false;$('#pVlc').hidden=true;$('#pChUp').hidden=$('#pChDn').hidden=false;
  const urls=[c.url];if(c.alt)urls.push(c.alt);else if(kind(c.url)==='unknown')urls.push(c.url+'.m3u8');
  urls.sort((a,b)=>(kind(b)==='hls')-(kind(a)==='hls'));start(urls,true);
@@ -268,9 +268,10 @@ function netLog(d){P.net={t:new Date().toLocaleTimeString(),...d};const e=$('#pS
 const redact=u=>{try{const x=new URL(u);return x.host+x.pathname.replace(/\/live\/[^/]+\/[^/]+\//,'/live/…/…/').replace(/\/(play|hls)\/[^/]+\//,'/$1/…/')}catch(e){return String(u||'').slice(0,60)}};
 const netTxt=()=>{const n=P.net;if(!n)return 'No network errors yet.';return [`${n.t} ${n.step||''}`,n.status!==undefined?`status: ${n.status}`:'',n.err?`error: ${n.err}`:'',n.url?`url: ${redact(n.url)}`:''].filter(Boolean).join('\n')};
 async function start(urls,live){
+tabClaim();
  const tok=++P.token,had=!!(P.hls||P.ts||P.rec||P.eng||P.recording||V.getAttribute('src'));teardown();spin(true);$('#pErr').hidden=true;$('#mini').hidden=true;P.live=live;P.net=null;
  if(had){status('Closing the previous stream…');await sleep(1000);if(tok!==P.token)return} // 1-connection plans: the old stream must be fully closed first
- const T0=Date.now(),DEADLINE=60000,fresh=()=>tok===P.token&&Date.now()-T0<DEADLINE;status('Connecting…');let lastErr=null;
+ const T0=Date.now(),DEADLINE=60000,fresh=()=>tok===P.token&&Date.now()-T0<DEADLINE&&!document.hidden;status('Connecting…');let lastErr=null;
  // 1) simplest first: plain hls.js (or native HLS), 2) direct .ts via mpegts.js, 3) native <video>. Pause & rewind (local segment store) only when the user wants it.
  const steps=[];
  // movies/series files (mp4/mkv/…): plain <video src>, no crossOrigin, so no CORS or preflight is needed
@@ -296,19 +297,20 @@ async function start(urls,live){
     netLog({step:'pause&rewind',err:rec.err?.message||'no segments',url:u})}catch(e){netLog({step:'pause&rewind',err:e.message,url:u})}
    rec.stop();if(P.rec===rec){P.rec=null;Local.live=null}lastErr=P.lastErr||lastErr;continue}
   if(how==='hls'){status(busy?`Waiting for your provider to free your connection… (${busy})`:'Trying HLS stream…');if(await tryHls(u,false,tok,live))return setMode(live?'buffer':'vod');lastErr=P.lastErr||lastErr;
-   if(P.net?.status===458&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'error 458'};await sleep(Math.min(4000+busy*1000,8000));si--;}continue}
+   if(P.net?.status===458&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again. If CheeseTV is open in other browser tabs, close them.',d:'error 458'};await sleep(Math.min(4000+busy*1000,8000));si--;}continue}
   if(how==='ts'){status(busy?`Waiting for your provider to free your connection… (${busy})`:'Starting stream…');if(await tryTs(u,tok))return setMode('ts');lastErr=P.lastErr||lastErr;
    // quick refusal = the provider's 1-connection slot is still held (error 458 / 407); wait and retry the same stream
-   if(Date.now()-ta<4000&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'busy (458/407)'};await sleep(Math.min(3000+busy*1000,8000));si--;}continue}
+   if(Date.now()-ta<4000&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again. If CheeseTV is open in other browser tabs, close them.',d:'busy (458/407)'};await sleep(Math.min(3000+busy*1000,8000));si--;}continue}
   if(how==='file'){status('Opening movie…');if(await tryNative(u,tok,20000))return setMode('vod');lastErr=P.lastErr||lastErr;
    if(Date.now()-ta<4000&&busy<4&&fresh()){busy++;status(`Waiting for your provider to free your connection… (${busy})`);teardown();await sleep(3000+busy*2000);si--;continue} // quick refusal: 1-connection slot still held
    if(fresh()){teardown();status('Trying the single-connection player…');await sleep(1000);if(await tryEngine(u,tok))return setMode('vod');lastErr=P.lastErr||lastErr}
    const fmt=/media error 3/.test(lastErr?.d||'');
    lastErr=fmt?{t:"This movie's format can't play in a browser",m:"This file uses a video format (for example HEVC/H.265 10-bit) that this browser can't play. Use the CheeseTV Android / Google TV app or Roku, or pick another version of this title (MP4) if your provider lists one.",d:lastErr?.d}
-    :{t:"This movie couldn't start",m:"Your provider allows 1 connection at a time, so close other devices using your login, wait a minute and try again. If it still fails, this file's format (for example MKV or HEVC/H.265) can't play in a browser: use the CheeseTV Android / Google TV app or Roku, or pick the MP4 version if your provider lists one.",d:lastErr?.d};continue}
+    :{t:"This movie couldn't start",m:"Your provider allows 1 connection at a time, so close other devices using your login, wait a minute and try again. If CheeseTV is open in other browser tabs, close them. If it still fails, this file's format (for example MKV or HEVC/H.265) can't play in a browser: use the CheeseTV Android / Google TV app or Roku, or pick the MP4 version if your provider lists one.",d:lastErr?.d};continue}
   status('Opening stream…');if(await tryNative(u,tok))return setMode(live?'native':'vod');lastErr=P.lastErr||lastErr;
  }
- if(tok===P.token){if(Date.now()-T0>=DEADLINE)lastErr=lastErr||{t:'The channel is taking too long',m:"No stream format started within a minute. The channel may be offline, your provider may allow only one connection at a time (close other apps using your login), or it blocks web browsers.",d:'timeout'};
+ if(tok===P.token&&document.hidden){teardown();spin(false);P.bg='retry';return} // never keep retrying in a background tab
+ if(tok===P.token){if(Date.now()-T0>=DEADLINE)lastErr=lastErr||{t:'The channel is taking too long',m:"No stream format started within a minute. The channel may be offline, your provider may allow only one connection at a time (close other apps using your login), or it blocks web browsers. If CheeseTV is open in other browser tabs, close them.",d:'timeout'};
   teardown();const e=lastErr||{};if(P.vod?.fmt?.label)e.m=(e.m||'')+` Detected format: ${P.vod.fmt.label}.`;showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",[e.d,P.net&&netTxt().replace(/\n/g,' · ')].filter(Boolean).join(' · '))}
 }
 function waitPlaying(tok,ms=14000){return new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;clearTimeout(t);V.removeEventListener('playing',ok);res(v)}};const ok=()=>fin(true);
@@ -365,6 +367,7 @@ $('#pMini').onclick=()=>{const m=$('#mini');if(!m.hidden){uiBack(()=>m.hidden=tr
 
 /* ---------- recording ---------- */
 const recDur=r=>(r.tracks.main?.segs||[]).reduce((a,s)=>a+s.d,0);
+$('#pFavC').onclick=e=>{e.stopPropagation();const c=S.cur;if(c&&!P.vod){favToast(toggleFav(c),c)}};
 $('#pVlc').onclick=()=>{P.vod&&openVlc(P.vod.url)};
 $('#pRec').onclick=()=>{if(P.recording){stopRecording();return}
  if((P.mode==='buffer'||P.mode==='ts')&&hlsOK()&&!P.vod&&!P.wantShift){P.wantShift=true;P.recAfter=true;toast('Switching to pause & rewind mode to record…');playChannel(P.idx,P.list);return}
@@ -468,7 +471,7 @@ async function openDetail(v){stopLive();const p=pl(),B=`${xb(p)}/player_api.php?
   $$('#dSeas button').forEach(b=>b.onclick=()=>{$$('#dSeas button').forEach(x=>x.classList.toggle('on',x===b));show(b.dataset.s)});show(Object.keys(eps).sort((a,b)=>a-b)[0])}}
 /* In-browser engine (lazy): demux MKV/MP4, decode Dolby audio in WASM, re-encode, remux to MSE. One sequential connection. */
 // fallback for plain files the <video> element can't open (moov at the end needs a 2nd parallel request; untagged MKV): demux over one connection
-async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=17')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
+async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=18')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
  if(tok!==P.token)return false;try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  const w=waitPlaying(tok,40000);let failed=null;
  try{P.eng=await E.open(V,u,{start:P.vodStart||0,ctx:P.actx,onStatus:t=>{if(tok===P.token&&t)status(t)},onError:e=>{failed=e;P.failNow&&P.failNow({t:"This movie couldn't start",m:'The single-connection player could not read this file.',d:'engine: '+redact(String(e&&e.message||e))})}})}catch(e){return false}
@@ -477,13 +480,13 @@ async function playEngine(v,at){const tok=++P.token;teardown();$('#pRec').hidden
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;
  try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  spin(true);status('Loading the beta player…');let E;
- try{E=await import('/vendor/ctv-engine.js?v=17')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
+ try{E=await import('/vendor/ctv-engine.js?v=18')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
  if(tok!==P.token)return;const c=await E.canHandle(v.fmt.vc,v.fmt.ac);if(tok!==P.token)return;
  if(!c.ok){fmtBlockErr({...v,fmt:{...v.fmt,bad:[...v.fmt.bad,c.why]}});return}
  try{P.eng=await E.open(V,v.url,{start:at||0,ctx:P.actx,onStatus:t=>{if(tok===P.token){if(t){spin(true);status(t)}else spin(false)}},
   onError:e=>{if(tok===P.token){teardown();showErr("This movie couldn't play in the browser",'The beta player failed. Try again, or watch it in the CheeseTV app.',redact(String(e&&e.message||e))+` · ${v.fmt.label}`)}}});
   if(tok!==P.token){P.eng.destroy();return}V.play().catch(()=>{})}catch(e){if(tok===P.token)showErr("This movie couldn't play in the browser",'Try again, or watch it in the CheeseTV app.',String(e))}}
-function playVod(v,at){P.vod=v;v.sid&&noteLast(v);$('#pVlc').hidden=!v.url;P.list=[];P.vodStart=at||0;openPlayer();$('#pName').textContent=v.name;$('#pNow').textContent=v.type==='movie'?'Movie':'Series';
+function playVod(v,at){P.vod=v;setTimeout(updFavBtn);v.sid&&noteLast(v);$('#pVlc').hidden=!v.url;P.list=[];P.vodStart=at||0;openPlayer();$('#pName').textContent=v.name;$('#pNow').textContent=v.type==='movie'?'Movie':'Series';
  if(v.fmt&&!v.fmt.ok&&v.fmt.eng){playEngine(v,at);return}
  if(v.fmt&&!v.fmt.ok){++P.token;teardown();$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;fmtBlockErr(v);return}
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;
@@ -505,21 +508,27 @@ function renderHero(){const rk=(S.recent[pl().id]||[])[0],c=S.chans.find(x=>ckey
  $('#hero').innerHTML=`${c.logo&&!isMixed(c.logo)?`<div class="hlogo" style="background-image:url('${esc(c.logo)}')"></div>`:`<div class="hlogo lg fb" style="font-size:30px">${esc(initials(c.name))}</div>`}<div class="kick"><span class="livedot"></span>${rk?'CONTINUE WATCHING':'ON NOW'} · ${esc(c.group)}</div><h2>${esc(np?np.t:c.name)}</h2><p>${np?`${esc(c.name)} · ${hm(np.a)} – ${hm(np.b)}`:'Live TV · Pause, rewind &amp; record'}</p><button class="btn gold" id="heroGo">&#9654; Watch Now</button>`;
  $('#heroGo').onclick=()=>{const l=filtered().includes(c)?filtered():S.chans;playChannel(l.indexOf(c),l)}}
 function renderGuide(){const G=$('#guide'),list=filtered(),PX=4.6/60000,n=Date.now(),t0=Math.floor(n/18e5)*18e5,W=8*36e5*PX;
- if(!list.length){G.innerHTML=`<p class="empty">${S.group==='★ Favorites'?'No favorites yet. Open the Channels tab and tap ☆ to add some.':'No channels here.'}</p>`;return}
+ if(!list.length){G.innerHTML=`<p class="empty">${S.group==='★ Favorites'?'No favorite channels yet. Tap ☆ in the player, or long-press a channel, to add it here.':'No channels here.'}</p>`;return}
  const note=S.epgState==='loading'?'Loading TV guide…':S.epgState==='gz'?'Guide file is .gz (compressed); browsers can’t open it.':S.epgState==='err'?'TV guide couldn’t load (CORS/offline).':S.epgState==='none'?'No guide info':'';
  let h=`<div class="ghead"><div class="gch">${hm(n).replace(/ /,'&nbsp;')}</div><div class="gtl" style="width:${W}px">${Array.from({length:16},(_,i)=>`<span style="left:${i*18e5*PX+6}px">${hm(t0+i*18e5)}</span>`).join('')}</div></div>`;
- h+=list.slice(0,400).map((c,i)=>{const ps=progs(c).filter(p=>p.b>t0&&p.a<t0+8*36e5);return `<div class="grow" data-i="${i}"><div class="gch">${logo(c)}<span class="nm">${esc(c.name)}</span></div><div class="gtl" style="width:${W}px"><div class="nowline" style="left:${(n-t0)*PX}px"></div>${ps.length?ps.map(p=>{const l=Math.max(0,(p.a-t0)*PX),w=(Math.min(p.b,t0+8*36e5)-Math.max(p.a,t0))*PX-5;return `<div class="gp ${p.a<=n&&p.b>n?'now':''}" style="left:${l}px;width:${w}px">${esc(p.t)}<small>${hm(p.a)} – ${hm(p.b)}</small></div>`}).join(''):`<div class="gp noepg" style="left:0;width:${W-5}px">${esc(c.name)}<small>${note||'No guide info'} · Tap to watch</small></div>`}</div></div>`}).join('');
- G.innerHTML=h;$$('#guide .grow').forEach(r=>r.onclick=()=>playChannel(+r.dataset.i,list));G.scrollLeft=0}
+ const fs=favSet();h+=(S.group==='★ Favorites'?list:list.slice(0,400)).map((c,i)=>{const ps=progs(c).filter(p=>p.b>t0&&p.a<t0+8*36e5);return `<div class="grow" data-i="${i}"><div class="gch">${logo(c)}<span class="nm">${esc(c.name)}</span>${fs.has(ckey(c))?'<i class="gstar" aria-label="Favorite">&#9733;</i>':''}</div><div class="gtl" style="width:${W}px"><div class="nowline" style="left:${(n-t0)*PX}px"></div>${ps.length?ps.map(p=>{const l=Math.max(0,(p.a-t0)*PX),w=(Math.min(p.b,t0+8*36e5)-Math.max(p.a,t0))*PX-5;return `<div class="gp ${p.a<=n&&p.b>n?'now':''}" style="left:${l}px;width:${w}px">${esc(p.t)}<small>${hm(p.a)} – ${hm(p.b)}</small></div>`}).join(''):`<div class="gp noepg" style="left:0;width:${W-5}px">${esc(c.name)}<small>${note||'No guide info'} · Tap to watch</small></div>`}</div></div>`}).join('');
+ G.innerHTML=h;$$('#guide .grow').forEach(r=>{longPress(r,()=>{const c=list[r.dataset.i];favToast(toggleFav(c),c);renderGuide()});r.onclick=()=>{if(lpDone(r))return;playChannel(+r.dataset.i,list)}});G.scrollLeft=0}
 function chRow(c,i,f){const np=nowProg(c);const pr=np?Math.min(100,(Date.now()-np.a)/(np.b-np.a)*100):0;return `<div class="ch" data-i="${i}"><span class="num">${esc(c.num||c.n)}</span>${logo(c)}<div class="t"><b>${esc(c.name)}</b>${np?`<small class="now">${esc(np.t)}</small><div class="pbar"><i style="width:${pr}%"></i></div>`:`<small>${esc(c.group)}</small>`}</div><button class="star ${f.has(ckey(c))?'on':''}" aria-label="Favorite">${f.has(ckey(c))?'★':'☆'}</button></div>`}
-function bindRows(el,list){el.querySelectorAll('.ch').forEach(r=>r.onclick=e=>{const c=list[r.dataset.i];if(e.target.classList.contains('star')){toggleFav(c);render()}else playChannel(+r.dataset.i,list)})}
-function renderList(){const list=filtered(),f=favSet();$('#clist').innerHTML=list.length?list.slice(0,2000).map((c,i)=>chRow(c,i,f)).join(''):`<p class="empty">${S.group==='★ Favorites'?'No favorites yet. Tap ☆ on a channel to add it.':'No channels here.'}</p>`;bindRows($('#clist'),list)}
+function bindRows(el,list){el.querySelectorAll('.ch').forEach(r=>{const c=list[r.dataset.i];longPress(r,()=>{favToast(toggleFav(c),c);S.view==='search'?renderSearch():render()});r.onclick=e=>{if(lpDone(r))return;if(e.target.closest('.star')){e.stopPropagation();favToast(toggleFav(c),c);S.view==='search'?renderSearch():render()}else playChannel(+r.dataset.i,list)}})}
+function renderList(){const list=filtered(),f=favSet();$('#clist').innerHTML=list.length?(S.group==='★ Favorites'?list:list.slice(0,2000)).map((c,i)=>chRow(c,i,f)).join(''):`<p class="empty">${S.group==='★ Favorites'?'No favorite channels yet. Tap ☆ or long-press a channel to add it.':'No channels here.'}</p>`;bindRows($('#clist'),list)}
 function renderSearch(){const q=$('#q').value.trim().toLowerCase(),R=$('#sres');if(!q){R.innerHTML='<p class="empty">Search your channels, what\'s on now'+(S.vod?', movies and series':'')+'.</p>';return}
  const ch=S.chans.filter(c=>c.name.toLowerCase().includes(q)||(nowProg(c)?.t||'').toLowerCase().includes(q)).slice(0,100),f=favSet();
  const v=S.vod?[...(S.vod.movie||[]),...(S.vod.series||[])].filter(x=>x.name.toLowerCase().includes(q)).slice(0,40):[];
  R.innerHTML=(ch.length?`<h3 class="h" style="font-size:16px">Channels</h3><div class="clist">${ch.map((c,i)=>chRow(c,i,f)).join('')}</div>`:'')+(v.length?`<div class="vrow"><h3>Movies &amp; Series</h3><div class="vscroll">${v.map(posterCard).join('')}</div></div>`:'')||'<p class="empty">No matches.</p>';
  bindRows(R,ch);$$('#sres .poster').forEach(b=>b.onclick=()=>openDetail(v.find(x=>x.key===b.dataset.k)))}
 $('#q').oninput=renderSearch;
-function toggleFav(c){const p=pl(),s=favSet(),k=ckey(c);s.has(k)?s.delete(k):s.add(k);S.favs[p.id]=[...s];save()}
+function toggleFav(c){const w=WD(),k=ckey(c),x=w.favC.indexOf(k);x<0?w.favC.unshift(k):w.favC.splice(x,1);wSave();pushFav(k,x<0,{name:c.name,img:c.logo},'live');updFavBtn();return x<0}
+function favToast(on,c){toast(on?`★ ${c.name} saved to Favorites`:`Removed ${c.name} from Favorites`)}
+function updFavBtn(){const b=$('#pFavC');if(!b)return;const c=S.cur,on=!P.vod&&c&&favSet().has(ckey(c));b.hidden=!!P.vod||!c;b.classList.toggle('on',!!on);b.innerHTML=on?'&#9733;':'&#9734;';b.setAttribute('aria-label',on?'Remove from Favorites':'Add to Favorites')}
+// long-press a Guide/Channels row to add or remove the channel from Favorites
+function longPress(el,fn){let t=null,sx=0,sy=0;el.addEventListener('pointerdown',e=>{sx=e.clientX;sy=e.clientY;clearTimeout(t);t=setTimeout(()=>{t=null;el.dataset.lp=1;navigator.vibrate?.(30);fn()},550)});
+ const cancel=()=>{clearTimeout(t);t=null};el.addEventListener('pointerup',cancel);el.addEventListener('pointercancel',cancel);el.addEventListener('pointermove',e=>{if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>10)cancel()});el.addEventListener('contextmenu',e=>e.preventDefault())}
+const lpDone=el=>{if(el.dataset.lp){delete el.dataset.lp;return true}return false};
 $$('#tabs button').forEach(b=>b.onclick=()=>{const was=S.view;S.view=b.dataset.v;if(S.view!==was){if(S.view==='guide'&&history.state?.ctv==='tab'){history.back();return}if(S.view!=='guide')history.state?.ctv==='tab'?history.replaceState({ctv:'tab'},''):hpush('tab')}if(S.view==='vod'&&pl()?.type!=='xt')S.view='guide';render();if(S.view==='search')setTimeout(()=>$('#q').focus(),50);window.scrollTo({top:0,behavior:'smooth'})});
 $('#home').onclick=e=>{e.preventDefault();if(S.view!=='guide'&&history.state?.ctv==='tab'){history.back();return}S.view='guide';render()};
 $('#pFavHint')&&0;
@@ -527,7 +536,7 @@ $('#pFavHint')&&0;
 /* ---------- sheets: settings ---------- */
 function sheet(h){$('#sheetCard').innerHTML=h;if($('#sheet').hidden)hpush('sheet');$('#sheet').hidden=false}function closeSheet(){$('#sheet').hidden=true}
 $('#sheet').onclick=e=>{if(e.target.id==='sheet')uiBack(closeSheet)};
-function openSettings(){sheet(`<div class="shd"><h3>Settings</h3><button class="ic" onclick="uiBack(closeSheet)">&#10005;</button></div>
+function openSettings(){sheet(`<div class="shd"><h3>Settings <small class="appver">v${APPV}</small></h3><button class="ic" onclick="uiBack(closeSheet)">&#10005;</button></div>
  <div class="vpn-set"><b>Buffering a lot?</b> Your internet provider may be slowing streams. Turn on a free VPN like Proton VPN, then reload. <a href="https://protonvpn.com/download" target="_blank" rel="noopener">Get Proton VPN</a></div>
  <h4 style="margin:6px 0 8px">Playlists</h4>${S.pls.map(p=>`<div class="pl ${p.id===pl()?.id?'on':''}"><b>${esc(p.name)}</b><small style="color:var(--mut)">${p.type==='xt'?'Xtream':'M3U'}</small><button data-a="use" data-id="${p.id}">Use</button><button data-a="del" data-id="${p.id}">Remove</button></div>`).join('')}
  <button class="btn gold" id="stAdd" style="margin:6px 0 16px">+ Add playlist / sign in</button>
@@ -616,8 +625,13 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
  V.addEventListener('playing',()=>{ws=0;clearTimeout(tm)});
 })();
 
-/* ---------- Back button: in-app history (v17) ---------- */
-function hpush(n){try{history.pushState({ctv:n==='tab'?'tab':'L',n},'')}catch(e){}}
+/* ---------- version + stale-cache check (v18) ---------- */
+const APPV=18;
+async function verCheck(){try{const r=await fetch('/version.json?n='+Date.now(),{cache:'no-store'});if(!r.ok)return;const v=+(await r.json()).v;
+ if(v>APPV&&sessionStorage.getItem('ctv.vr')!==String(v)){sessionStorage.setItem('ctv.vr',String(v));const u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}catch(e){}}
+verCheck();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&$('#player').hidden)verCheck()});
+/* ---------- Back button: in-app history (v17, v18: gesture-armed guard) ---------- */
+function hpush(n){hArm();try{history.pushState({ctv:n==='tab'?'tab':'L',n},'')}catch(e){}}
 // on-screen close buttons: go through history when the layer has its own entry, so the stack stays in step
 function uiBack(fn){const s=history.state?.ctv;if(s==='L'||s==='tab')history.back();else fn()}
 const H={skip:0,exitAt:0};
@@ -637,5 +651,26 @@ window.addEventListener('popstate',e=>{if(H.skip){H.skip=0;return}const st=e.sta
  if(st===1)return; // guard
  // popped past the guard at the Guide root
  if(Date.now()-H.exitAt<2000){history.back();return}
- H.exitAt=Date.now();toast('Press back again to exit CheeseTV',2000);history.pushState({ctv:1},'')});
-try{if(history.state?.ctv==null){history.replaceState({ctv:0},'');history.pushState({ctv:1},'')}}catch(e){}
+ // no pushState here: an entry pushed without a user gesture is skipped by Chrome's Back. The guard is re-armed on the next tap.
+ H.exitAt=Date.now();toast('Press back again to exit CheeseTV',2000)});
+// Guide-root guard: created inside a real user gesture (Chrome ignores history entries added without one, e.g. at page load)
+// a guard left by an earlier load may have been made without a gesture (v17 did that), so start from the root again
+try{const s=history.state?.ctv;if(s==null||s===1)history.replaceState({ctv:0},'')}catch(e){}
+function hArm(){try{if(history.state?.ctv===0&&navigator.userActivation?.isActive!==false)history.pushState({ctv:1},'')}catch(e){}}
+['pointerup','touchend','click','keydown'].forEach(t=>window.addEventListener(t,hArm,{capture:true,passive:true}));
+
+/* ---------- single-tab playback + background release (v18) ---------- */
+const TAB=Math.random().toString(36).slice(2),BC='BroadcastChannel' in window?new BroadcastChannel('ctv-play'):null;
+const streaming=()=>!!(P.hls||P.ts||P.rec||P.eng||V.getAttribute('src'));
+function tabClaim(){const m={t:'play',id:TAB,at:Date.now()};try{BC&&BC.postMessage(m)}catch(e){}try{LS.setItem('ctv.play',JSON.stringify(m))}catch(e){}P.bg=null;$('#pElse')?.remove()}
+function savePos(){if(P.vod&&V.duration>0&&V.currentTime>5){P.vodPos=V.currentTime;S.resume[P.vod.key]={t:V.currentTime,d:V.duration,at:Date.now()};LS.setItem('ctv.resume',JSON.stringify(S.resume));pushProg(P.vod,V.currentTime,V.duration)}}
+function resumeHere(){const v=P.vod;if(v){v.rec?toast('Open the recording again from Recordings.'):playVod(v,P.vodPos??S.resume[v.key]?.t)}else if(P.list.length)playChannel(P.idx,P.list)}
+// another CheeseTV tab started playing: fully stop here (aborts fetches and any wait-for-slot loop via the token)
+function otherTabPlays(){if($('#player').hidden&&!streaming())return;savePos();P.token++;teardown();spin(false);$('#pErr').hidden=true;$('#mini').hidden=true;P.bg='tab';
+ let d=$('#pElse');if(!d){d=document.createElement('button');d.id='pElse';d.className='pelse';d.innerHTML='<b>&#9654;</b><span>Playing in another tab. Tap to play here</span>';d.onclick=e=>{e.stopPropagation();d.remove();resumeHere()};$('#player').appendChild(d)}}
+BC&&(BC.onmessage=e=>{if(e.data?.t==='play'&&e.data.id!==TAB)otherTabPlays()});
+window.addEventListener('storage',e=>{if(e.key!=='ctv.play'||!e.newValue)return;try{const m=JSON.parse(e.newValue);if(m.id!==TAB)otherTabPlays()}catch(x){}});
+document.addEventListener('visibilitychange',()=>{clearTimeout(H.hid);
+ if(document.hidden){if($('#player').hidden)return;H.hid=setTimeout(()=>{if(P.vod){savePos();try{V.pause()}catch(e){}P.bg='movie'}else if(streaming()||P.bg==='retry'){P.token++;teardown();spin(false);P.bg='live'}},H.bgMs||60000);return}
+ if($('#player').hidden||P.bg==='tab')return;
+ if(P.bg==='live'||P.bg==='retry'){P.bg=null;resumeHere()}else if(P.bg==='movie'){P.bg=null;tabClaim();V.play().catch(()=>resumeHere())}});
