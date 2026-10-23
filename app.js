@@ -9,10 +9,10 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const pl=()=>S.pls.find(p=>p.id===S.active)||S.pls[0];
 /* per-provider watch data (favorite series + last episode per series). Keyed by playlist id + server + username; never the password. */
 const wKey=()=>{const p=pl();return p?'ctv.watch.'+p.id+':'+String(p.server||'').replace(/^https?:\/\//,'').replace(/\/+$/,'')+':'+(p.user||''):''};
-const WD=()=>{const k=wKey();if(!k)return {fav:[],last:{}};if(WD.k!==k){WD.k=k;WD.d=J(k,{});WD.d.fav??=[];WD.d.last??={}}return WD.d};
+const WD=()=>{const k=wKey();if(!k)return {fav:[],last:{}};if(WD.k!==k){WD.k=k;WD.d=J(k,{});WD.d.fav??=[];WD.d.favM??=[];WD.d.last??={}}return WD.d};
 const wSave=()=>{const k=wKey();k&&LS.setItem(k,JSON.stringify(WD()))};
-const isFavS=id=>WD().fav.includes(String(id));
-function toggleFavS(id,v){const w=WD(),i=String(id),x=w.fav.indexOf(i);x<0?w.fav.unshift(i):w.fav.splice(x,1);wSave();pushFav(i,x<0,v||S.vod?.series?.find?.(s=>String(s.id)===i));return x<0}
+const favL=t=>t==='movie'?WD().favM:WD().fav;const isFavS=(id,t)=>favL(t).includes(String(id));
+function toggleFavS(id,v,t){t=t||v?.type||'series';const L=favL(t),i=String(id),x=L.indexOf(i);x<0?L.unshift(i):L.splice(x,1);wSave();pushFav(i,x<0,v||S.vod?.[t]?.find?.(s=>String(s.id)===i),t);return x<0}
 /* ---------- cross-device sync (Supabase RPCs; key = sha256(host|user|pass) computed here, password never sent) ---------- */
 function hostOf(server){ var s=String(server).trim().toLowerCase().replace(/^[a-z]+:\/\//,''); return s.split('/')[0].split(':')[0]; }
 function utf8(str){ return unescape(encodeURIComponent(str)); }
@@ -55,13 +55,13 @@ async function flushQ(){if(SY.fl)return;SY.fl=1;try{const k=await sKey();if(!k)r
  for(const id of Object.keys(q)){const b=q[id];const r=await rpc(b.fn,{...b.a,p_key:k});if(!r)break;if(q[id]===b)delete q[id]}wSave()}finally{SY.fl=0}}
 function pushProg(v,t,d){if(!v||!v.key||v.rec||!(d>0))return;const at=Date.now(),ep=!!v.sid,id=ep?v.epId:String(v.id||v.key.slice(1));
  qPush('p:'+(ep?'episode':'movie')+':'+id,{fn:'sync_put_progress',a:{p_item_type:ep?'episode':'movie',p_item_id:id,p_series_id:ep?v.sid:null,p_season:ep?+v.s||null:null,p_episode:ep?+v.e||null:null,p_title:String(ep?v.title||v.name:v.name||'').slice(0,300),p_position_s:Math.round(t||0),p_duration_s:Math.round(Math.min(d,172800)),p_watched:t/d>=.9,p_updated_at:iso(at)}})}
-function pushFav(id,on,v){qPush('f:series:'+id,{fn:'sync_set_favorite',a:{p_item_type:'series',p_item_id:String(id),p_title:String(v?.name||'').slice(0,300),p_poster:v?.img&&String(v.img).length<=1000?v.img:null,p_fav:on}})}
+function pushFav(id,on,v,t='series'){qPush('f:'+t+':'+id,{fn:'sync_set_favorite',a:{p_item_type:t,p_item_id:String(id),p_title:String(v?.name||'').slice(0,300),p_poster:v?.img&&String(v.img).length<=1000?v.img:null,p_fav:on}})}
 async function syncGet(){if(SY.g)return SY.g;SY.g=(async()=>{try{await flushQ();const k=await sKey();if(!k)return false;const r=await rpc('sync_get',{p_key:k});if(!r||r.bad||!r.progress)return false;
  const w=WD(),q=w.q||{};let ch=false;
  // favorites: server list wins, except toggles still waiting to be pushed
- const fav=new Set((r.favorites||[]).filter(f=>f.item_type==='series').map(f=>String(f.item_id)));
- for(const id in q)if(id.startsWith('f:series:')){const i=id.slice(9);q[id].a.p_fav?fav.add(i):fav.delete(i)}
- const nf=[...w.fav.filter(i=>fav.has(i)),...[...fav].filter(i=>!w.fav.includes(i))];if(nf.join()!==w.fav.join()){w.fav=nf;ch=true}
+  for(const [t,F] of [['series','fav'],['movie','favM']]){const fav=new Set((r.favorites||[]).filter(f=>f.item_type===t).map(f=>String(f.item_id))),pre='f:'+t+':';
+ for(const id in q)if(id.startsWith(pre)){const i=id.slice(pre.length);q[id].a.p_fav?fav.add(i):fav.delete(i)}
+ const nf=[...w[F].filter(i=>fav.has(i)),...[...fav].filter(i=>!w[F].includes(i))];if(nf.join()!==w[F].join()){w[F]=nf;ch=true}}
  // progress: newest updated_at wins
  for(const p of r.progress||[]){const at=Date.parse(p.updated_at)||0,ep=p.item_type==='episode',k2=ep?'e'+p.series_id+':'+p.item_id:'m'+p.item_id,lo=S.resume[k2];
   if(!lo||(lo.at||0)<at){S.resume[k2]={t:+p.position_s||0,d:+p.duration_s||0,at};ch=true}
@@ -405,18 +405,24 @@ async function loadVod(type){const p=pl();if(S.vod?.pid!==p.id)S.vod={pid:p.id};
  if(!l.length)throw new Error('The provider sent an empty list.');const m={};c.forEach(x=>m[x.category_id]=x.category_name);
  V[type]=type==='movie'?l.map(v=>({type:'movie',id:v.stream_id,name:v.name,img:v.stream_icon,rating:v.rating,group:m[v.category_id]||'Movies',ext:v.container_extension||'mp4',key:'m'+v.stream_id})):l.map(v=>({type:'series',id:v.series_id,name:v.name,img:v.cover,rating:v.rating,plot:v.plot,group:m[v.category_id]||'Series',key:'s'+v.series_id}));return V}
 const posterCard=v=>{const r=S.resume[v.key]||(v.type==='series'&&Object.entries(S.resume).filter(([k])=>k.startsWith('e'+v.id+':')).sort((a,b)=>b[1].at-a[1].at)[0]?.[1]);
- return `<button class="poster" data-k="${esc(v.key)}"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}">${v.img&&!isMixed(v.img)?'':esc(v.name)}${r&&r.d?`<div class="pbar"><i style="width:${Math.min(100,r.t/r.d*100)}%"></i></div>`:''}</div>${v.type==='series'?HEART(v.id):''}<small>${esc(v.name)}</small></button>`};
+ return `<button class="poster" data-k="${esc(v.key)}"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}">${v.img&&!isMixed(v.img)?'':esc(v.name)}${r&&r.d?`<div class="pbar"><i style="width:${Math.min(100,r.t/r.d*100)}%"></i></div>`:''}</div>${HEART(v.id,v.type)}<small>${esc(v.name)}</small></button>`};
 async function renderVod(sync=true){if(sync)syncGet().then(ch=>{if(ch&&!$('#vodBody').closest('[hidden]'))renderVod(false)});const B=$('#vodBody');B.innerHTML=Array(3).fill('<div class="vrow"><h3><span class="sk" style="display:inline-block;width:120px;height:18px"></span></h3><div class="vscroll">'+Array(8).fill('<div class="sk" style="width:128px;height:190px;flex:none"></div>').join('')+'</div></div>').join('');
+ if(S.vodType==='fav')return renderFavs(B);
  const T=S.vodType,W=T==='movie'?'movies':'series';let d;try{d=await loadVod(T)}catch(e){if(S.vodType!==T)return;B.innerHTML=`<div class="empty"><p>Couldn't load ${W}. Your provider may be busy. Wait a moment and try again.</p><p><button class="btn" id="vodRetry">Try again</button></p><details><summary>Details</summary><small>${esc(e.message||String(e))}</small></details></div>`;$('#vodRetry').onclick=renderVod;return}if(S.vodType!==T)return
  const items=d[T],groups={};items.forEach(v=>(groups[v.group]??=[]).push(v));
  const Wd=WD(),cont=T==='series'?items.filter(v=>Wd.last[v.id]).sort((a,b)=>Wd.last[b.id].at-Wd.last[a.id].at).slice(0,20):items.filter(v=>S.resume[v.key]&&S.resume[v.key].t/S.resume[v.key].d<.9).sort((a,b)=>S.resume[b.key].at-S.resume[a.key].at).slice(0,20);
- const favs=T==='series'?Wd.fav.map(id=>items.find(v=>String(v.id)===id)).filter(Boolean):[];
- const rows=(cont.length?[['Continue watching',cont,1]]:[]).concat(favs.length?[['♥ My Series',favs]]:[]).concat(Object.entries(groups));
+ const rows=(cont.length?[['Continue watching',cont,1]]:[]).concat(Object.entries(groups));
  B.innerHTML=rows.length?rows.map(([g,l,c])=>`<div class="vrow${c?' cont':''}"><h3>${esc(g)}</h3><div class="vscroll">${l.slice(0,60).map(v=>c&&T==='series'&&Wd.last[v.id]?posterCard(v).replace('<small>',`<small class="cw">S${esc(Wd.last[v.id].s)}E${esc(Wd.last[v.id].e)} · `):posterCard(v)).join('')}</div></div>`).join(''):`<p class="empty">No ${W} from this provider.</p>`;
  $$('#vodBody .poster').forEach(b=>b.onclick=ev=>{const v=items.find(x=>x.key===b.dataset.k),h=ev.target.closest('.heart');
-  if(h){ev.stopPropagation();const on=toggleFavS(h.dataset.fav,v);toast(on?'Added to My Series':'Removed from My Series');renderVod();return}
+  if(h){ev.stopPropagation();const on=toggleFavS(h.dataset.fav,v,h.dataset.ft);h.classList.toggle('on',on);h.innerHTML=on?'&#9829;':'&#9825;';toast(on?'Saved to ♥ Favorites':'Removed from Favorites');return}
   if(b.closest('.vrow.cont')){if(v.type==='series'&&resumeSeries(v))return;if(v.type==='movie'){const p=pl();playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},S.resume[v.key]?.t);return}}
   openDetail(v)})}
+async function renderFavs(B){let d;try{d=await loadVod('series')}catch(e){d=S.vod||{}}try{await loadVod('movie')}catch(e){}if(S.vodType!=='fav')return;d=S.vod||{};
+ const w=WD(),pick=(L,t)=>L.map(id=>(d[t]||[]).find(v=>String(v.id)===id)).filter(Boolean),se=pick(w.fav,'series'),mo=pick(w.favM,'movie'),all=[...se,...mo];
+ if(!all.length){B.innerHTML='<div class="empty favempty"><div class="bigheart">&#9825;</div><p><b>No favorites yet</b></p><p>Tap &#9829; on any show to save it here.</p></div>';return}
+ B.innerHTML=[['♥ Series',se],['♥ Movies',mo]].filter(r=>r[1].length).map(([g,l])=>`<div class="vrow"><h3>${g}</h3><div class="vgrid">${l.map(posterCard).join('')}</div></div>`).join('');
+ $$('#vodBody .poster').forEach(b=>b.onclick=ev=>{const v=all.find(x=>x.key===b.dataset.k),h=ev.target.closest('.heart');
+  if(h){ev.stopPropagation();toggleFavS(h.dataset.fav,v,h.dataset.ft);toast('Removed from Favorites');renderFavs(B);return}openDetail(v)})}
 $$('#vodSeg button').forEach(b=>b.onclick=()=>{$$('#vodSeg button').forEach(x=>x.classList.toggle('on',x===b));S.vodType=b.dataset.t;renderVod()});
 
 /* web playability from provider metadata (get_vod_info / episode info) */
@@ -444,25 +450,25 @@ async function findAlts(v){const p=pl();if(!S.vod?.movie||v.type!=='movie')retur
  for(const x of c){try{const inf=(await getJSON(`${B}&action=get_vod_info&vod_id=${x.id}`,'Xtream server')).info||{},f=webFmt(inf,x.ext);if(f&&f.ok)out.push({...x,fmt:f,url:`${xb(p)}/movie/${xp(p)}/${x.id}.${x.ext}`})}catch(e){}await sleep(400)}return out}
 function epObj(v,s,e){const p=pl(),ext=e.container_extension||e.ext||'mp4',id=e.id||e.epId;return {type:'ep',fmt:e.info?webFmt(e.info,ext):null,name:`${v.name} · S${s}E${e.episode_num??e.e}`,img:v.img,key:'e'+v.id+':'+id,url:`${xb(p)}/series/${xp(p)}/${id}.${ext}`,sid:String(v.id),s:String(s),e:String(e.episode_num??e.e),epId:String(id),ext,title:e.title||'',sname:v.name}}
 function resumeSeries(v){const L=WD().last[v.id];if(!L)return false;const o=epObj(v,L.s,{epId:L.epId,e:L.e,ext:L.ext,title:L.title});playVod(o,S.resume[o.key]?.t??L.t);return true}
-const HEART=id=>`<span class="heart${isFavS(id)?' on':''}" data-fav="${esc(id)}" role="button" aria-label="Favorite">${isFavS(id)?'&#9829;':'&#9825;'}</span>`;
+const HEART=(id,t='series')=>`<span class="heart${isFavS(id,t)?' on':''}" data-fav="${esc(id)}" data-ft="${t}" role="button" aria-label="Favorite">${isFavS(id,t)?'&#9829;':'&#9825;'}</span>`;
 async function openDetail(v){stopLive();const p=pl(),B=`${xb(p)}/player_api.php?${xq(p)}`;sheet('<div class="sk" style="height:220px"></div>');let info={},eps=null;
  try{if(v.type==='movie'){info=(await getJSON(`${B}&action=get_vod_info&vod_id=${v.id}`,'Xtream server')).info||{}}else{const r=await getJSON(`${B}&action=get_series_info&series_id=${v.id}`,'Xtream server');info=r.info||{};eps=r.episodes||{}}}catch(e){}
  const fm=v.type==='movie'?webFmt(info,v.ext):null;v.fmt=fm;
  const res=S.resume[v.key],plot=info.plot||info.description||v.plot||'',rating=info.rating||v.rating,yr=(info.releasedate||info.releaseDate||'').slice(0,4);
- let h=`<div class="shd"><h3>${esc(v.name)}</h3>${v.type==='series'?HEART(v.id):''}<button class="ic" onclick="closeSheet()">&#10005;</button></div><div class="det"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}"></div><div><div class="meta">${[rating&&`★ ${esc(rating)}`,yr,info.genre&&esc(info.genre),info.duration&&esc(info.duration)].filter(Boolean).join(' · ')}${fm&&!fm.ok?' '+(fm.eng?BETA:APP_ONLY):''}</div>${fm&&!fm.ok&&fm.eng?`<p class="note">This movie has Dolby audio, which browsers can't play directly. The web player decodes it on your device (beta, uses more battery; seeking takes a few seconds).</p>`:''}${fm&&!fm.ok&&!fm.eng?`<p class="note">This movie's format (${esc(fm.bad.join(' / '))}) can't play in a web browser. Use Open in VLC or the CheeseTV app.</p>`:''}<p>${esc(plot)||'No description.'}</p>`;
+ let h=`<div class="shd"><h3>${esc(v.name)}</h3>${HEART(v.id,v.type)}<button class="ic" onclick="closeSheet()">&#10005;</button></div><div class="det"><div class="im" style="${v.img&&!isMixed(v.img)?`background-image:url('${esc(v.img)}')`:''}"></div><div><div class="meta">${[rating&&`★ ${esc(rating)}`,yr,info.genre&&esc(info.genre),info.duration&&esc(info.duration)].filter(Boolean).join(' · ')}${fm&&!fm.ok?' '+(fm.eng?BETA:APP_ONLY):''}</div>${fm&&!fm.ok&&fm.eng?`<p class="note">This movie has Dolby audio, which browsers can't play directly. The web player decodes it on your device (beta, uses more battery; seeking takes a few seconds).</p>`:''}${fm&&!fm.ok&&!fm.eng?`<p class="note">This movie's format (${esc(fm.bad.join(' / '))}) can't play in a web browser. Use Open in VLC or the CheeseTV app.</p>`:''}<p>${esc(plot)||'No description.'}</p>`;
  if(v.type==='movie')h+=`<button class="btn gold" id="dPlay" style="width:auto">&#9654; ${res?'Resume '+fmt(res.t):'Play'}</button>${res?' <button class="btn dark" id="dStart" style="width:auto">From start</button>':''}`+` <button class="btn dark vlcs" id="dVlc" style="width:auto">${IOS||ANDROID?'Open in VLC':'Copy link for VLC'}</button>`;
  if(v.type==='series'){const L=WD().last[v.id];if(L)h+=`<button class="btn gold" id="dCont" style="width:auto">&#9654; Continue S${esc(L.s)}E${esc(L.e)}</button>${L.title?` <small class="note">${esc(L.title)}</small>`:''}`}
  h+='</div></div>';
  if(eps){const ss=Object.keys(eps).sort((a,b)=>a-b);h+=`<div class="chips" style="padding:12px 0 6px" id="dSeas">${ss.map((s,i)=>`<button class="${i?'':'on'}" data-s="${esc(s)}">Season ${esc(s)}</button>`).join('')}</div><div class="eps" id="dEps"></div>`}
  sheet(h);
- $('#dCont')&&($('#dCont').onclick=()=>{closeSheet();resumeSeries(v)});$$('#sheetCard .heart').forEach(x=>x.onclick=ev=>{ev.stopPropagation();const on=toggleFavS(x.dataset.fav,v);x.classList.toggle('on',on);x.innerHTML=on?'&#9829;':'&#9825;';toast(on?'Added to My Series':'Removed from My Series')});
+ $('#dCont')&&($('#dCont').onclick=()=>{closeSheet();resumeSeries(v)});$$('#sheetCard .heart').forEach(x=>x.onclick=ev=>{ev.stopPropagation();const on=toggleFavS(x.dataset.fav,v,x.dataset.ft);x.classList.toggle('on',on);x.innerHTML=on?'&#9829;':'&#9825;';toast(on?'Saved to ♥ Favorites':'Removed from Favorites')});
  if(v.type==='movie'){$('#dPlay').onclick=async()=>{closeSheet();if(fm&&!fm.ok&&!fm.eng){const vv={...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`};playVod(vv);vv.alts=await findAlts(v);if(P.vod===vv&&vv.alts.length)fmtBlockErr(vv);return}playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},res?.t)};$('#dVlc').onclick=()=>{closeSheet();openVlc(`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`)};$('#dStart')&&($('#dStart').onclick=()=>{closeSheet();playVod({...v,url:`${xb(p)}/movie/${xp(p)}/${v.id}.${v.ext}`},0)})}
  if(eps){const show=s=>{$('#dEps').innerHTML=(eps[s]||[]).map(e=>{const k='e'+v.id+':'+e.id,r=S.resume[k],ef=webFmt(e.info,e.container_extension);return `<div class="ep" data-id="${esc(e.id)}"><div><b>${r&&r.d&&r.t/r.d>.9?'<span class="wchk">&#10003;</span> ':''}${esc(e.episode_num)}. ${esc(e.title)}</b>${ef&&!ef.ok?' '+(ef.eng?BETA:APP_ONLY):''}${r?`<div class="pbar" style="width:160px"><i style="width:${Math.min(100,r.t/r.d*100)}%"></i></div>`:''}</div><span style="color:var(--gold)">${r?'Resume':'&#9654;'}</span></div>`}).join('')||'<p class="note">No episodes.</p>';
    $$('#dEps .ep').forEach(el=>el.onclick=()=>{const e=eps[s].find(x=>String(x.id)===el.dataset.id);closeSheet();const o=epObj(v,s,e);playVod(o,S.resume[o.key]?.t)})};
   $$('#dSeas button').forEach(b=>b.onclick=()=>{$$('#dSeas button').forEach(x=>x.classList.toggle('on',x===b));show(b.dataset.s)});show(Object.keys(eps).sort((a,b)=>a-b)[0])}}
 /* In-browser engine (lazy): demux MKV/MP4, decode Dolby audio in WASM, re-encode, remux to MSE. One sequential connection. */
 // fallback for plain files the <video> element can't open (moov at the end needs a 2nd parallel request; untagged MKV): demux over one connection
-async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=15')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
+async function tryEngine(u,tok){let E;try{E=await import('/vendor/ctv-engine.js?v=16')}catch(e){P.lastErr={t:"This movie couldn't start",m:"Couldn't load the single-connection player.",d:String(e)};return false}
  if(tok!==P.token)return false;try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  const w=waitPlaying(tok,40000);let failed=null;
  try{P.eng=await E.open(V,u,{start:P.vodStart||0,ctx:P.actx,onStatus:t=>{if(tok===P.token&&t)status(t)},onError:e=>{failed=e;P.failNow&&P.failNow({t:"This movie couldn't start",m:'The single-connection player could not read this file.',d:'engine: '+redact(String(e&&e.message||e))})}})}catch(e){return false}
@@ -471,7 +477,7 @@ async function playEngine(v,at){const tok=++P.token;teardown();$('#pRec').hidden
  $('#pLogo').outerHTML=`<div id="pLogo" class="lg ologo" style="${v.img?`background-image:url('${esc(v.img)}');background-size:cover`:''}"></div>`;
  try{P.actx=P.actx||new (window.AudioContext||window.webkitAudioContext)();P.actx.resume()}catch(e){}
  spin(true);status('Loading the beta player…');let E;
- try{E=await import('/vendor/ctv-engine.js?v=15')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
+ try{E=await import('/vendor/ctv-engine.js?v=16')}catch(e){if(tok===P.token)showErr("Couldn't load the beta player",'Check your connection and try again.',String(e));return}
  if(tok!==P.token)return;const c=await E.canHandle(v.fmt.vc,v.fmt.ac);if(tok!==P.token)return;
  if(!c.ok){fmtBlockErr({...v,fmt:{...v.fmt,bad:[...v.fmt.bad,c.why]}});return}
  try{P.eng=await E.open(V,v.url,{start:at||0,ctx:P.actx,onStatus:t=>{if(tok===P.token){if(t){spin(true);status(t)}else spin(false)}},
