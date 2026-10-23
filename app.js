@@ -220,10 +220,10 @@ async function start(urls,live){
     netLog({step:'pause&rewind',err:rec.err?.message||'no segments',url:u})}catch(e){netLog({step:'pause&rewind',err:e.message,url:u})}
    rec.stop();if(P.rec===rec){P.rec=null;Local.live=null}lastErr=P.lastErr||lastErr;continue}
   if(how==='hls'){status(busy?`Waiting for your provider to free your connection… (${busy})`:'Trying HLS stream…');if(await tryHls(u,false,tok,live))return setMode(live?'buffer':'vod');lastErr=P.lastErr||lastErr;
-   if(P.net?.status===458&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'error 458'};await sleep(4000);si--;}continue}
+   if(P.net?.status===458&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'error 458'};await sleep(Math.min(4000+busy*1000,8000));si--;}continue}
   if(how==='ts'){status(busy?`Waiting for your provider to free your connection… (${busy})`:'Starting stream…');if(await tryTs(u,tok))return setMode('ts');lastErr=P.lastErr||lastErr;
    // quick refusal = the provider's 1-connection slot is still held (error 458 / 407); wait and retry the same stream
-   if(Date.now()-ta<4000&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'busy (458/407)'};await sleep(3000);si--;}continue}
+   if(Date.now()-ta<4000&&busy<10&&fresh()){busy++;lastErr={t:'Your provider says your connection is in use',m:'Your plan allows 1 connection at a time. Close CheeseTV or other IPTV apps on your other devices, wait a minute, and try again.',d:'busy (458/407)'};await sleep(Math.min(3000+busy*1000,8000));si--;}continue}
   if(how==='file'){status('Opening movie…');if(await tryNative(u,tok,20000))return setMode('vod');lastErr=P.lastErr||lastErr;
    if(Date.now()-ta<4000&&busy<4&&fresh()){busy++;status(`Waiting for your provider to free your connection… (${busy})`);teardown();await sleep(3000+busy*2000);si--;continue} // quick refusal: 1-connection slot still held
    if(fresh()){teardown();status('Trying the single-connection player…');await sleep(1000);if(await tryEngine(u,tok))return setMode('vod');lastErr=P.lastErr||lastErr}
