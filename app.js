@@ -311,7 +311,7 @@ tabClaim();
  }
  if(tok===P.token&&document.hidden){teardown();spin(false);P.bg='retry';return} // never keep retrying in a background tab
  if(tok===P.token){if(Date.now()-T0>=DEADLINE)lastErr=lastErr||{t:'The channel is taking too long',m:"No stream format started within a minute. The channel may be offline, your provider may allow only one connection at a time (close other apps using your login), or it blocks web browsers. If CheeseTV is open in other browser tabs, close them.",d:'timeout'};
-  teardown();const e=lastErr||{};if(P.vod?.fmt?.label)e.m=(e.m||'')+` Detected format: ${P.vod.fmt.label}.`;showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",[e.d,P.net&&netTxt().replace(/\n/g,' · ')].filter(Boolean).join(' · '))}
+  teardown();const e=lastErr||{};if(S.pendRec&&!P.vod&&S.cur&&ckey(S.cur)===S.pendRec.k){const x=S.pendRec;S.pendRec=null;recLog({id:x.id,title:x.title,chan:x.chan,a:x.a},'failed',P.net&&!(P.net.status>0)&&/TS|HLS/.test(P.net.step||'')?"The provider's server refused this web page without an answer: it blocks browser access to the stream (CORS), or your 1 connection was busy. If live TV also won't play in this browser, it's a CORS block: use the CheeseTV Android / Fire TV app to record.":(e.t?e.t+'. ':'')+(e.m||"The channel didn't start."))}if(P.vod?.fmt?.label)e.m=(e.m||'')+` Detected format: ${P.vod.fmt.label}.`;showErr(e.t||"This channel can't play here",e.m||"The stream didn't start. It may be offline, or the provider blocks web playback (CORS).",[e.d,P.net&&netTxt().replace(/\n/g,' · ')].filter(Boolean).join(' · '))}
 }
 function waitPlaying(tok,ms=14000){return new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;clearTimeout(t);V.removeEventListener('playing',ok);res(v)}};const ok=()=>fin(true);
  V.addEventListener('playing',ok);const t=setTimeout(()=>{P.lastErr={t:'The channel is taking too long',m:"The stream didn't start within 14 seconds. The channel may be offline, or the provider blocks web browsers.",d:'timeout'};fin(false)},ms);P.failNow=e=>{P.lastErr=e;fin(false)};
@@ -329,7 +329,7 @@ function tryNative(u,tok,ms){const w=waitPlaying(tok,ms);V.onerror=()=>P.failNow
 function tryTs(u,tok){const p=P.ts=mpegts.createPlayer({type:'mpegts',isLive:true,url:u},{enableStashBuffer:false,liveBufferLatencyChasing:false,autoCleanupSourceBuffer:true,autoCleanupMaxBackwardDuration:S.tsMin*60});
  p.on(mpegts.Events.ERROR,(t,d,info)=>(netLog({step:'TS '+t+' '+d,status:info?.code,err:info?.msg,url:u}),P.failNow)?.({t:t===mpegts.ErrorTypes.NETWORK_ERROR?'The provider blocks web playback':"This channel can't play here",m:t===mpegts.ErrorTypes.NETWORK_ERROR?"The stream server didn't allow this web page to load it (CORS), or it is offline.":'This stream format is not supported in this browser.',d:`${d} ${info?.msg||''}`}));
  const w=waitPlaying(tok);p.attachMediaElement(V);p.load();V.play().catch(()=>{});return w.then(ok=>{if(!ok){try{p.destroy()}catch(e){}P.ts=null}return ok})}
-function setMode(m){P.mode=m;spin(false);P.wantShift=false;if(P.recAfter){P.recAfter=false;if(m==='shift')setTimeout(()=>$('#pRec').click(),300)}$('#pMode').textContent={shift:'⏪ PAUSE & REWIND',buffer:'⏪ REWIND (buffer)',native:'NATIVE PLAYER',ts:'TS',vod:'ON DEMAND',rec:'RECORDING'}[m]||'';
+function setMode(m){P.mode=m;spin(false);P.wantShift=false;if(P.recAfter){P.recAfter=false;if(m==='shift')setTimeout(()=>$('#pRec').click(),300);else if(S.pendRec&&S.cur&&ckey(S.cur)===S.pendRec.k&&m!=='vod')setTimeout(()=>tsRecord(S.cur,S.pendRec),300)}$('#pMode').textContent={shift:'⏪ PAUSE & REWIND',buffer:'⏪ REWIND (buffer)',native:'NATIVE PLAYER',ts:'TS',vod:'ON DEMAND',rec:'RECORDING'}[m]||'';
  $('#pMode').title={shift:`You can pause and rewind up to ${S.tsMin} minutes, back to when you started watching this channel.`,buffer:'This provider blocks segment access, so rewind is limited to what the browser keeps in memory.',native:"iPhone's built-in player: AirPlay works, but pause & rewind and recording are not available."}[m]||'';
  $('#pAir').hidden=!window.WebKitPlaybackTargetAvailabilityEvent;$('#pLive').hidden=!(P.live);tick()}
 /* scrubber */
@@ -371,6 +371,7 @@ $('#pFavC').onclick=e=>{e.stopPropagation();const c=S.cur;if(c&&!P.vod){favToast
 $('#pVlc').onclick=()=>{P.vod&&openVlc(P.vod.url)};
 $('#pRec').onclick=()=>{if(P.recording){stopRecording();return}
  if((P.mode==='buffer'||P.mode==='ts')&&hlsOK()&&!P.vod&&!P.wantShift){P.wantShift=true;P.recAfter=true;toast('Switching to pause & rewind mode to record…');playChannel(P.idx,P.list);return}
+ if(P.mode==='ts'&&!P.vod&&S.cur){if(confirm('Your plan allows 1 connection, so CheeseTV records this channel without showing the video (direct .ts). Tap Stop to finish. Record now?'))tsRecord(S.cur,null);return}
  if(P.mode!=='shift'||!P.rec){toast(P.mode==='native'?"Recording isn't available in the iPhone's built-in player (AirPlay mode).":"This channel can't be recorded in a browser: the provider doesn't allow web access to the stream segments (CORS). Use the CheeseTV Android app to record.",6000);return}
  const c=S.cur,np=nowProg(c);const R=P.recording={id:'r'+Date.now(),chan:c.name,logo:c.logo||'',title:np?np.t:c.name,start:Date.now(),inf:P.rec.inf,tracks:{}};
  // start from what's on screen now (the part already kept for rewind), then keep adding new segments
@@ -378,17 +379,17 @@ $('#pRec').onclick=()=>{if(P.recording){stopRecording();return}
  for(const [n,t] of Object.entries(P.rec.tracks)){let acc=0;const segs=[];for(const sg of t.segs){if(acc+sg.d>from){segs.push(sg);P.rec.pinned.add(sg.k);sg.init&&P.rec.pinned.add(sg.init)}acc+=sg.d}R.tracks[n]={segs}}
  P.rec.rec=R;if(S.pendRec&&S.pendRec.k===ckey(c)){R.title=S.pendRec.title;R.until=S.pendRec.until;R.sched=S.pendRec.id;S.pendRec=null;wakeOn()}
  $('#pRec').classList.add('on');$('#pRec').querySelector('span').textContent='Stop';$('#pRecBadge').hidden=false;toast('● Recording started. It keeps going until you tap Stop or leave the channel.')};
-async function stopRecording(silent){const r=P.recording;if(!r)return;P.recording=null;if(P.rec)P.rec.rec=null;$('#pRec').classList.remove('on');$('#pRec').querySelector('span').textContent='Record';$('#pRecBadge').hidden=true;
- r.dur=recDur(r);r.size=Object.values(r.tracks).reduce((a,t)=>a+t.segs.reduce((b,s)=>b+s.size,0),0);if(!r.dur){if(!silent)toast('Nothing was recorded yet.');return}
+async function stopRecording(silent){const r=P.recording;if(!r)return;P.recording=null;if(P.tsrec){try{P.tsrec.abort()}catch(e){}P.tsrec=null;if(P.mode==='tsrec'){$('#pErr').hidden=true;P.mode=''}}delete r.partial;if(P.rec)P.rec.rec=null;$('#pRec').classList.remove('on');$('#pRec').querySelector('span').textContent='Record';$('#pRecBadge').hidden=true;
+ r.dur=recDur(r);r.size=Object.values(r.tracks).reduce((a,t)=>a+t.segs.reduce((b,s)=>b+s.size,0),0);if(!r.dur||!r.size){if(r.sched)recLog({id:r.sched,title:r.title,chan:r.chan,a:r.start},'failed',r.err||'Nothing was saved: the stream sent no data.');else if(!silent)toast('Nothing was recorded yet.');DB.delRec(r.id).catch(()=>{});return}
  await DB.putRec(r);toast(`Saved "${r.title}" (${fmt(r.dur)}) to Recordings.`)}
 async function renderRecs(){renderSched();const L=$('#recList');L.innerHTML='<div class="sk skrow"></div><div class="sk skrow"></div>';let recs=[];try{recs=(await DB.recs()).sort((a,b)=>b.start-a.start)}catch(e){}
  let info='Recordings are saved on this device only.';try{const e=await navigator.storage?.estimate?.();if(e)info+=` Using ${(e.usage/1e6).toFixed(0)} MB of about ${(e.quota/1e9).toFixed(1)} GB available to this site.`}catch(e){}
  $('#recInfo').textContent=info;
- L.innerHTML=recs.length?recs.map(r=>`<div class="rec" data-id="${r.id}"><div style="display:flex;gap:12px;align-items:center">${logo({name:r.chan,logo:r.logo})}<div style="min-width:0"><b>${esc(r.title)}</b><small>${esc(r.chan)} · ${new Date(r.start).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} · ${fmt(r.dur)} · ${(r.size/1e6).toFixed(1)} MB</small></div></div><div class="row"><button class="p" data-a="play">&#9654; Play</button><button data-a="dl">&#11015; Download</button><button data-a="del">Delete</button></div></div>`).join('')
+ L.innerHTML=recs.length?recs.map(r=>`<div class="rec" data-id="${r.id}"><div style="display:flex;gap:12px;align-items:center">${logo({name:r.chan,logo:r.logo})}<div style="min-width:0"><b>${esc(r.title)}</b><small>${esc(r.chan)} · ${new Date(r.start).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} · ${fmt(r.dur)} · ${(r.size/1e6).toFixed(1)} MB${r.partial?' · <b style="color:var(--red)">Interrupted (tab was closed)</b>':''}</small></div></div><div class="row"><button class="p" data-a="play">&#9654; Play</button><button data-a="dl">&#11015; Download</button><button data-a="del">Delete</button></div></div>`).join('')
   :`<div class="empty"><div class="rec-ic" style="width:40px;height:40px;color:var(--gold)"></div><p>No recordings yet.<br>Open a channel and tap <b style="color:var(--red)">●</b> Record.</p><p class="note">Recording works when the provider lets web pages fetch its HLS segments (CORS). Otherwise use the CheeseTV Android app.</p></div>`;
  $$('#recList .rec button').forEach(b=>b.onclick=async()=>{const r=recs.find(x=>x.id===b.closest('.rec').dataset.id);
   if(b.dataset.a==='play')playRec(r);else if(b.dataset.a==='del'){if(!confirm('Delete this recording?'))return;await DB.delRec(r.id);await sweep();renderRecs()}else downloadRec(r,b)})}
-function playRec(r){if(!hlsOK()){toast('Playing recordings needs iOS 17.1 or newer (or a desktop browser).',5000);return}
+function playRec(r){if(r.raw)return playRaw(r);if(!hlsOK()){toast('Playing recordings needs iOS 17.1 or newer (or a desktop browser).',5000);return}
  Local.recs[r.id]={tracks:r.tracks,inf:r.inf,ended:true};P.vod={key:'rec:'+r.id,rec:true};P.list=[];openPlayer();$('#pName').textContent=r.title;$('#pNow').textContent=`Recorded from ${r.chan}`;
  $('#pLogo').outerHTML=logo({name:r.chan,logo:r.logo},'ologo').replace('class="lg','id="pLogo" class="lg');$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;
  const tok=++P.token;teardown();spin(true);tryHls(`${LOC}rec/${r.id}/master.m3u8`,true,tok).then(ok=>{if(ok)setMode('vod');else showErr("This recording can't play",'Part of the recording is missing from this device.',P.lastErr?.d)})}
@@ -630,9 +631,9 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
 })();
 
 /* ---------- version + stale-cache check (v18) ---------- */
-const APPV=21;
+const APPV=22;
 async function verCheck(){try{const r=await fetch('/version.json?n='+Date.now(),{cache:'no-store'});if(!r.ok)return;const v=+(await r.json()).v;
- if(v>APPV&&sessionStorage.getItem('ctv.vr')!==String(v)){sessionStorage.setItem('ctv.vr',String(v));const u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}catch(e){}}
+ if(v>APPV&&!recBusy()&&sessionStorage.getItem('ctv.vr')!==String(v)){sessionStorage.setItem('ctv.vr',String(v));const u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}catch(e){}}
 verCheck();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&$('#player').hidden)verCheck()});
 /* ---------- Back button: in-app history (v17, v18: gesture-armed guard) ---------- */
 function hpush(n){hArm();try{history.pushState({ctv:n==='tab'?'tab':'L',n},'')}catch(e){}}
@@ -708,23 +709,24 @@ function progMenu(c,p,list,i){const on=schedHas(c,p),fav=favSet().has(ckey(c));
   <button class="btn dark" id="pmFav">${fav?'★ Remove from Favorites':'☆ Add to Favorites'}</button>
   <button class="btn dark" id="pmWatch">▶ Watch channel now</button></div>
  <p class="note">Web recording runs only while this tab stays open and the screen stays on. It starts 2 min early, ends 5 min late, and the file downloads from Recordings when it's done. For reliable recordings (screen off, app closed) use the <a href="https://watchcheesetv.com/#devices">CheeseTV Android / Fire TV app</a>.</p>`);
- $('#pmRec').onclick=()=>{let l=schedAll();if(on){l=l.filter(x=>x.id!==schedId(c,p));toast('Recording cancelled')}else{l.push({id:schedId(c,p),k:ckey(c),chan:c.name,title:p.t||c.name,a:p.a,b:p.b,pl:pl()?.id});toast(`⏺ "${p.t}" will record at ${hm(p.a)}. Keep this tab open.`,6000);try{Notification?.permission==='default'&&Notification.requestPermission()}catch(e){}}
+ $('#pmRec').onclick=()=>{let l=schedAll();if(on){l=l.filter(x=>x.id!==schedId(c,p));toast('Recording cancelled')}else{if(!confirm('Keep this tab open and the screen on until the show ends. Closing it cancels the recording.\n\nFor background recording use the CheeseTV Android / Fire TV app.\n\nSchedule this recording?'))return;l.push({id:schedId(c,p),k:ckey(c),chan:c.name,title:p.t||c.name,a:p.a,b:p.b,pl:pl()?.id});toast(`⏺ "${p.t}" will record at ${hm(p.a)}. Keep this tab open.`,6000);try{Notification?.permission==='default'&&Notification.requestPermission()}catch(e){}}
   schedSave(l.sort((x,y)=>x.a-y.a));uiBack(closeSheet);renderGuide()};
  $('#pmFav').onclick=()=>{favToast(toggleFav(c),c);uiBack(closeSheet);renderGuide()};
  $('#pmWatch').onclick=()=>{uiBack(closeSheet);playChannel(i,list)}}
 function renderSched(){let box=$('#schedList');if(!box){box=document.createElement('div');box.id='schedList';$('#recList').before(box)}
  const l=schedAll().filter(x=>x.b+POST>Date.now());
- box.innerHTML=`<p class="note">⏺ Scheduled shows record only while this tab is open and the screen stays on (CheeseTV keeps it awake). Your plan allows 1 connection, so at start time CheeseTV switches to that channel. For reliable recordings use the CheeseTV Android / Fire TV app.</p>`+
-  (l.length?`<h4 style="margin:8px 0">Scheduled</h4>`+l.map(x=>`<div class="rec" data-sid="${esc(x.id)}"><div><b>⏺ ${esc(x.title)}</b><small>${esc(x.chan)} · ${new Date(x.a).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} – ${hm(x.b)}${x.fired?' · recording now':''}</small></div><button class="btn dark" data-a="cancel">Cancel</button></div>`).join('')+`<h4 style="margin:12px 0 8px">Recorded</h4>`:'');
+ const lg=recLogAll();box.innerHTML=(lg.length?`<h4 style="margin:8px 0">Didn't record</h4>`+lg.map(x=>`<div class="rec recfail" data-lid="${esc(x.lid)}"><div><b style="color:var(--red)">${x.status==='missed'?'⚠ Missed':'✕ Failed'}: ${esc(x.title)}</b><small>${esc(x.chan||'')}${x.a?' · '+new Date(x.a).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):''}</small><small>${esc(x.msg)}</small></div><button class="btn dark" data-a="dismiss">Dismiss</button></div>`).join(''):'')+`<p class="note">⏺ Scheduled shows record only while this tab is open and the screen stays on (CheeseTV keeps it awake). Your plan allows 1 connection, so at start time CheeseTV switches to that channel. For reliable recordings use the CheeseTV Android / Fire TV app.</p>`+
+  (l.length?`<h4 style="margin:8px 0">Scheduled</h4>`+l.map(x=>`<div class="rec" data-sid="${esc(x.id)}"><div><b>⏺ ${esc(x.title)}</b><small>${esc(x.chan)} · ${new Date(x.a).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})} – ${hm(x.b)}${x.fired?' · recording now':' · <b style="color:var(--gold)">Scheduled</b>'}</small></div><button class="btn dark" data-a="cancel">Cancel</button></div>`).join('')+`<h4 style="margin:12px 0 8px">Recorded</h4>`:'');
+ box.querySelectorAll('[data-a=dismiss]').forEach(b=>b.onclick=()=>{const id=b.closest('.rec').dataset.lid;localStorage.setItem(LOG_KEY,JSON.stringify(recLogAll().filter(y=>y.lid!==id)));renderSched()});
  box.querySelectorAll('[data-a=cancel]').forEach(b=>b.onclick=()=>{const id=b.closest('.rec').dataset.sid,x=schedAll().find(y=>y.id===id);
   if(x?.fired&&P.recording?.sched===id)stopRecording();schedSave(schedAll().filter(y=>y.id!==id));toast('Recording cancelled');renderSched()})}
-let WL=null;async function wakeOn(){try{if(!WL&&navigator.wakeLock)WL=await navigator.wakeLock.request('screen');WL?.addEventListener?.('release',()=>WL=null)}catch(e){}}
+let WL=null;async function wakeOn(){try{if(!WL&&navigator.wakeLock&&!document.hidden){WL=await navigator.wakeLock.request('screen');WL.addEventListener('release',()=>WL=null)}}catch(e){}}
 function wakeOff(){try{WL?.release()}catch(e){}WL=null}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&(P.recording||schedAll().some(x=>x.a-PRE-Date.now()<15*6e4&&x.b+POST>Date.now())))wakeOn()});
 function recNotify(t,b){toast(t+(b?' · '+b:''),6000);try{if(Notification?.permission==='granted')new Notification(t,{body:b||'',icon:'/icons/icon-192.png'})}catch(e){}}
 function findChan(k){return (S.chans||[]).map((c,i)=>[c,i]).find(([c])=>ckey(c)===k)}
-function schedFire(x){const hit=findChan(x.k);if(!hit){recNotify(`Couldn't record "${x.title}"`,'That channel is not in the current playlist.');return}
- const [c,i]=hit,go=()=>{closeSheet();S.pendRec={id:x.id,k:x.k,title:x.title,until:x.b+POST,at:Date.now()};
+function schedFire(x){const hit=findChan(x.k);if(!hit){recLog(x,'failed','That channel is not in the current playlist.');return}banner(`⏺ Recording "${x.title}" is starting on ${x.chan}. Keep this tab open and the screen on.`);
+ const [c,i]=hit,go=()=>{closeSheet();S.pendRec={id:x.id,k:x.k,title:x.title,chan:x.chan,a:x.a,until:x.b+POST,at:Date.now()};
   if(S.cur&&ckey(S.cur)===x.k&&!$('#player').hidden&&P.mode==='shift'&&P.rec&&!P.recording){$('#pRec').click();return}
   if(P.recording)stopRecording();P.wantShift=true;P.recAfter=true;playChannel(i,S.chans)};
  recNotify(`⏺ Recording "${x.title}" starts now`,x.chan);
@@ -736,11 +738,52 @@ function schedFire(x){const hit=findChan(x.k);if(!hit){recNotify(`Couldn't recor
   $('#schGo').onclick=()=>{clearInterval(t);go()};$('#schSkip').onclick=()=>{clearInterval(t);closeSheet();schedSave(schedAll().filter(y=>y.id!==x.id));toast('Recording skipped')};return}
  go()}
 function schedTick(){const now=Date.now();let l=schedAll(),ch=false;
- for(const x of l){if(!x.fired&&now>=x.a-PRE&&now<x.b+POST&&(!x.pl||x.pl===pl()?.id)&&S.chans?.length){x.fired=now;ch=true;schedFire(x)}}
+ for(const x of l){if(x.fired&&!FIRED.has(x.id)){ // fired in an earlier page load (tab closed / reloaded)
+   if(now<x.b+POST){delete x.fired;ch=true}else if(!x.logged){x.logged=1;ch=true;recLog(x,'missed','Interrupted: the tab was closed or reloaded during the show. Any part that was saved is under Recorded.')}}
+  if(!x.fired&&now>=x.b+POST&&!x.logged){x.logged=1;ch=true;recLog(x,'missed','Missed (tab was closed). The CheeseTV tab must stay open with the screen on until the show ends.')}}
+ for(const x of l){if(!x.fired&&now>=x.a-PRE&&now<x.b+POST&&(!x.pl||x.pl===pl()?.id)&&S.chans?.length){x.fired=now;FIRED.add(x.id);ch=true;schedFire(x)}}
  const before=l.length;l=l.filter(x=>x.b+POST>now||(P.recording&&P.recording.sched===x.id));if(l.length!==before)ch=true;
  if(ch)schedSave(l);
- if(P.recording?.until&&now>=P.recording.until){const t=P.recording.title,sid=P.recording.sched;stopRecording().then(()=>{recNotify(`Recording finished: "${t}"`,'Open Recordings to download the .ts file.');schedSave(schedAll().filter(y=>y.id!==sid&&y.b+POST>Date.now()));if(S.view==='recs')renderRecs()})}
- if(S.pendRec&&!P.recording&&now-S.pendRec.at>45000){const t=S.pendRec.title;S.pendRec=null;recNotify(`Couldn't record "${t}"`,"This provider doesn't let web pages save its stream (CORS). Use the CheeseTV Android app.")}
+ if(P.recording?.until&&now>=P.recording.until){const t=P.recording.title,sid=P.recording.sched;stopRecording().then(()=>{recNotify(`Recording finished: "${t}"`,'Open Recordings to download the .ts file.');banner(`✓ Recording finished: "${t}". It's in Recordings.`,'ok');schedSave(schedAll().filter(y=>y.id!==sid&&y.b+POST>Date.now()));if(S.view==='recs')renderRecs()})}
+ if(S.pendRec&&!P.recording&&!P.tsrecStarting&&now-S.pendRec.at>90000){const x=S.pendRec;S.pendRec=null;recLog({id:x.id,title:x.title,chan:x.chan,a:x.a},'failed',"The channel didn't start"+(P.net?` (${netTxt().replace(/\n/g,' · ')})`:'')+'. Your 1 connection may be in use on another device, or the provider blocks web playback.')}
+ if(P.recording?.sched&&now-(P.recording.savedAt||0)>20000){P.recording.savedAt=now;const r=P.recording;DB.putRec({...r,dur:recDur(r),size:Object.values(r.tracks).reduce((a,t)=>a+t.segs.reduce((b,x)=>b+x.size,0),0),partial:true}).catch(()=>{})}
  if(P.recording||l.some(x=>x.a-PRE-now<10*6e4&&x.b+POST>now))wakeOn();else if(WL)wakeOff()}
-setInterval(schedTick,5000);setTimeout(schedTick,3000);
+setInterval(schedTick,5000);setTimeout(schedTick,3000);setTimeout(schedTick,800);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedTick()});window.addEventListener('pageshow',()=>schedTick());
 window.CTV_SCHED={schedAll,schedSave,schedTick,schedFire,progMenu};
+
+// ---------------------------------------------------------------- v22: robust scheduled recordings
+const FIRED=new Set(),LOG_KEY='ctv_reclog';
+const recLogAll=()=>{try{return JSON.parse(localStorage.getItem(LOG_KEY)||'[]')}catch(e){return []}};
+function recLog(x,status,msg){const l=recLogAll().filter(y=>y.id!==x.id||y.status!==status);l.unshift({lid:'l'+Date.now()+Math.random().toString(36).slice(2,6),id:x.id,title:x.title,chan:x.chan,a:x.a,status,msg,at:Date.now()});localStorage.setItem(LOG_KEY,JSON.stringify(l.slice(0,30)));
+ banner(`${status==='missed'?'⚠ Missed':'✕ Recording failed'}: "${x.title}". ${msg}`,'err');try{if(Notification?.permission==='granted')new Notification(`Recording ${status}: ${x.title}`,{body:msg,icon:'/icons/icon-192.png'})}catch(e){}if(S.view==='recs')renderRecs()}
+function banner(t,kind){let b=$('#recBanner');if(!b){b=document.createElement('div');b.id='recBanner';b.style.cssText='position:fixed;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));z-index:60;padding:12px 40px 12px 14px;border-radius:12px;font-weight:600;box-shadow:0 8px 24px #000;font-size:14px;line-height:1.35';document.body.appendChild(b)}
+ b.style.background=kind==='err'?'#5a1010':kind==='ok'?'#12401f':'#3a2a05';b.style.border='1px solid '+(kind==='err'?'#ff5a5a':kind==='ok'?'#4cd964':'#f7c23b');b.innerHTML=`<span></span><button aria-label="Close" style="position:absolute;right:8px;top:8px;background:none;border:0;color:#fff;font-size:18px">✕</button>`;b.firstChild.textContent=t;b.lastChild.onclick=()=>b.hidden=true;b.hidden=false;
+ clearTimeout(banner.t);if(kind==='ok')banner.t=setTimeout(()=>b.hidden=true,15000)}
+function recBusy(){const n=Date.now();return !!P.recording||schedAll().some(x=>x.a-PRE-n<15*6e4&&x.b+POST>n)}
+window.addEventListener('beforeunload',e=>{const n=Date.now();if(P.recording||schedAll().some(x=>x.b+POST>n&&!x.logged)){e.preventDefault();e.returnValue='A CheeseTV recording is scheduled or in progress. Closing this tab cancels it.';return e.returnValue}});
+// Direct .ts recorder: ONE fetch of the provider's .ts stream (your single connection), streamed into IndexedDB in ~1 MB pieces.
+// Video isn't shown meanwhile (showing it would need a 2nd connection).
+async function tsRecord(c,pend){const tsu=[c.url,c.alt].find(u=>u&&kind(u)==='ts')||c.url;P.tsrecStarting=true;
+ ++P.token;teardown();spin(false);await sleep(1200);const ac=new AbortController();P.tsrec=ac;P.mode='tsrec';
+ const R=P.recording={id:'r'+Date.now(),chan:c.name,logo:c.logo||'',title:pend?.title||nowProg(c)?.t||c.name,start:Date.now(),inf:'',raw:true,tracks:{main:{segs:[]}}};
+ if(pend){R.until=pend.until;R.sched=pend.id;S.pendRec=null}P.tsrecStarting=false;wakeOn();
+ const box=$('#pErr');box.innerHTML=`<h4 style="color:var(--red)">● Recording ${esc(R.title)}</h4><p>Saving the stream to this device. The video is hidden while recording because your plan allows 1 connection.</p><p id="tsrecInfo" class="note">Connecting…</p><div class="row"><button class="btn dark" id="tsrecStop">■ Stop recording</button></div>`;box.hidden=false;
+ $('#tsrecStop').onclick=()=>stopRecording();$('#pRec').classList.add('on');$('#pRec').querySelector('span').textContent='Stop';$('#pRecBadge').hidden=false;
+ const fail=m=>{R.err=m;banner('✕ Recording failed: "'+R.title+'". '+m,'err');netLog({step:'record .ts',err:m,url:tsu})};
+ let tries=0,idx=0,last=Date.now();
+ while(P.tsrec===ac&&!ac.signal.aborted){let r;
+  try{r=await fetch(tsu,{signal:ac.signal,cache:'no-store'})}catch(e){if(ac.signal.aborted)break;
+   if(!R.tracks.main.segs.length&&++tries>=3){fail("Your provider doesn't let web pages save its stream (blocked by CORS). Playback may still work, but recording in a browser can't. Use the CheeseTV Android / Fire TV app to record.");break}await sleep(3000);continue}
+  if(!r.ok||!r.body){if(++tries>=(r.status===458||r.status===407?8:3)){fail(r.status===458||r.status===407?'Your provider says your 1 connection is in use (error '+r.status+'). Close CheeseTV and other IPTV apps on other devices.':'The provider answered with error '+r.status+'. The channel may be offline or your login expired.');break}await sleep(4000);continue}
+  const rd=r.body.getReader();let buf=[],n=0;const flush=async()=>{if(!n)return;const b=new Blob(buf),k=`ts${R.id}/${idx}`;const ab=await b.arrayBuffer();await DB.put(k,ab);const now=Date.now();R.tracks.main.segs.push({i:idx++,k,d:(now-last)/1000,size:ab.byteLength,at:now});last=now;buf=[];n=0;
+   const e=$('#tsrecInfo');if(e)e.textContent=`${fmt(recDur(R))} · ${(R.tracks.main.segs.reduce((a,s)=>a+s.size,0)/1e6).toFixed(1)} MB saved`};
+  try{for(;;){const {done,value}=await rd.read();if(done)break;tries=0;buf.push(value);n+=value.byteLength;if(n>=1<<20||Date.now()-last>4000)await flush();if(P.tsrec!==ac)break}}catch(e){}
+  try{await flush()}catch(e){fail('This device is out of storage for recordings.');break}
+  if(P.tsrec===ac&&!ac.signal.aborted){await sleep(1500)} // stream ended: reconnect
+ }
+ if(P.tsrec===ac){P.tsrec=null;stopRecording()}}
+async function playRaw(r){openPlayer();$('#pName').textContent=r.title;$('#pNow').textContent=`Recorded from ${r.chan}`;$('#pRec').hidden=$('#pChUp').hidden=$('#pChDn').hidden=true;P.vod={key:'rec:'+r.id,rec:true};P.list=[];
+ const tok=++P.token;teardown();spin(true);const parts=[];for(const s of r.tracks.main.segs)parts.push(await DB.get(s.k));const url=URL.createObjectURL(new Blob(parts,{type:'video/mp2t'}));
+ if(!window.mpegts){showErr("This recording can't play here",'Download it and open it in VLC.');return}
+ const p=P.ts=mpegts.createPlayer({type:'mpegts',isLive:false,url});const w=waitPlaying(tok);p.attachMediaElement(V);p.load();V.play().catch(()=>{});if(await w)setMode('vod');else showErr("This recording can't play here",'Download it and open it in VLC.')}
