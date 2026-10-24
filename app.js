@@ -515,7 +515,7 @@ function renderGuide(){const G=$('#guide'),list=filtered(),PX=4.6/60000,n=Date.n
  const fs=favSet();h+=(S.group==='★ Favorites'?list:list.slice(0,400)).map((c,i)=>{const ps=progs(c).filter(p=>p.b>t0&&p.a<t0+8*36e5);return `<div class="grow" data-i="${i}"><div class="gch">${logo(c)}<span class="nm">${esc(c.name)}</span>${fs.has(ckey(c))?'<i class="gstar" aria-label="Favorite">&#9733;</i>':''}</div><div class="gtl" style="width:${W}px"><div class="nowline" style="left:${(n-t0)*PX}px"></div>${ps.length?ps.map(p=>{const l=Math.max(0,(p.a-t0)*PX),w=(Math.min(p.b,t0+8*36e5)-Math.max(p.a,t0))*PX-5;const sc=schedHas(c,p);return `<div class="gp ${p.a<=n&&p.b>n?'now':''}${sc?' sched':''}" data-a="${p.a}" style="left:${l}px;width:${w}px">${sc?'<i class="recdot">⏺</i> ':''}${esc(p.t)}<small>${hm(p.a)} – ${hm(p.b)}</small></div>`}).join(''):`<div class="gp noepg" style="left:0;width:${W-5}px">${esc(c.name)}<small>${note||'No guide info'} · Tap to watch</small></div>`}</div></div>`}).join('');
  G.innerHTML=h;shortEpg(list.slice(0,40));$$('#guide .grow').forEach(r=>{r.addEventListener('pointerdown',e=>{r._gp=e.target.closest('.gp')},true);longPress(r,()=>{const c=list[r.dataset.i],p=gpProg(c,r._gp);if(p&&p.a>Date.now())return progMenu(c,p,list,+r.dataset.i);favToast(toggleFav(c),c);renderGuide()});r.onclick=e=>{if(lpDone(r))return;const c=list[r.dataset.i],p=gpProg(c,e.target.closest('.gp'));if(p&&p.a>Date.now())return progMenu(c,p,list,+r.dataset.i);playChannel(+r.dataset.i,list)}});G.scrollLeft=0}
 function chRow(c,i,f){const np=nowProg(c);const pr=np?Math.min(100,(Date.now()-np.a)/(np.b-np.a)*100):0;return `<div class="ch" data-i="${i}"><span class="num">${esc(c.num||c.n)}</span>${logo(c)}<div class="t"><b>${esc(c.name)}</b>${np?`<small class="now">${esc(np.t)}</small><div class="pbar"><i style="width:${pr}%"></i></div>`:`<small>${esc(c.group)}</small>`}</div><button class="star ${f.has(ckey(c))?'on':''}" aria-label="Favorite">${f.has(ckey(c))?'★':'☆'}</button></div>`}
-function bindRows(el,list){el.querySelectorAll('.ch').forEach(r=>{const c=list[r.dataset.i];longPress(r,()=>{favToast(toggleFav(c),c);S.view==='search'?renderSearch():render()});r.onclick=e=>{if(lpDone(r))return;if(e.target.closest('.star')){e.stopPropagation();favToast(toggleFav(c),c);S.view==='search'?renderSearch():render()}else playChannel(+r.dataset.i,list)}})}
+function bindRows(el,list){el.querySelectorAll('.ch').forEach(r=>{const c=list[r.dataset.i];longPress(r,()=>{favToast(toggleFav(c),c);S.view==='search'?renderSearch():render()});const st=r.querySelector('.star');st&&(st.onclick=e=>{e.stopPropagation();e.preventDefault();if(Date.now()-(st._t||0)<400)return;st._t=Date.now();favToast(toggleFav(c),c);S.view==='search'?renderSearch():render()});r.onclick=e=>{if(lpDone(r))return;if(e.target.closest('.star'))return;playChannel(+r.dataset.i,list)}})}
 function renderList(){const list=filtered(),f=favSet();$('#clist').innerHTML=list.length?(S.group==='★ Favorites'?list:list.slice(0,2000)).map((c,i)=>chRow(c,i,f)).join(''):`<p class="empty">${S.group==='★ Favorites'?'No favorite channels yet. Tap ☆ or long-press a channel to add it.':'No channels here.'}</p>`;bindRows($('#clist'),list)}
 function renderSearch(){const q=$('#q').value.trim().toLowerCase(),R=$('#sres');if(!q){R.innerHTML='<p class="empty">Search your channels, what\'s on now'+(S.vod?', movies and series':'')+'.</p>';return}
  const ch=S.chans.filter(c=>c.name.toLowerCase().includes(q)||(nowProg(c)?.t||'').toLowerCase().includes(q)).slice(0,100),f=favSet();
@@ -524,16 +524,20 @@ function renderSearch(){const q=$('#q').value.trim().toLowerCase(),R=$('#sres');
  bindRows(R,ch);$$('#sres .poster').forEach(b=>b.onclick=()=>openDetail(v.find(x=>x.key===b.dataset.k)))}
 $('#q').oninput=renderSearch;
 function toggleFav(c){const w=WD(),k=ckey(c),x=w.favC.indexOf(k);x<0?w.favC.unshift(k):w.favC.splice(x,1);wSave();pushFav(k,x<0,{name:c.name,img:c.logo},'live');updFavBtn();return x<0}
-function favToast(on,c){toast(on?`★ ${c.name} saved to Favorites`:`Removed ${c.name} from Favorites`)}
+function favToast(on,c){if(on)return toast(`★ ${c.name} saved to Favorites`);undoToast('Removed from favorites',()=>{if(!favSet().has(ckey(c)))toggleFav(c);S.view==='guide'?renderGuide():S.view==='search'?renderSearch():render();toast(`★ ${c.name} is back in Favorites`)})}
+function undoToast(t,fn){const e=$('#toast');e.innerHTML='';const sp=document.createElement('span');sp.textContent=t+' ';const b=document.createElement('button');b.className='undo';b.textContent='Undo';b.onclick=ev=>{ev.stopPropagation();clearTimeout(toast.t);e.hidden=true;fn()};e.append(sp,b);e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,5000)}
 function updFavBtn(){const b=$('#pFavC');if(!b)return;const c=S.cur,on=!P.vod&&c&&favSet().has(ckey(c));b.hidden=!!P.vod||!c;b.classList.toggle('on',!!on);b.innerHTML=on?'&#9733;':'&#9734;';b.setAttribute('aria-label',on?'Remove from Favorites':'Add to Favorites')}
 // long-press a Guide/Channels row to add or remove the channel from Favorites
-function longPress(el,fn){let t=null,sx=0,sy=0;el.addEventListener('pointerdown',e=>{sx=e.clientX;sy=e.clientY;clearTimeout(t);t=setTimeout(()=>{t=null;el.dataset.lp=1;window.__lpAt=Date.now();navigator.vibrate?.(30);fn()},550)});
- const cancel=()=>{clearTimeout(t);t=null};el.addEventListener('pointerup',cancel);el.addEventListener('pointermove',e=>{if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>10)cancel()});
- // touch: Chrome fires pointercancel when the page starts scrolling, and contextmenu on a long hold. Scroll = cancel; long hold = fire now.
- el.addEventListener('pointercancel',()=>setTimeout(()=>{if(t&&window.__lpScroll)cancel()},0));el.addEventListener('contextmenu',e=>{e.preventDefault();if(t){cancel();el.dataset.lp=1;window.__lpAt=Date.now();navigator.vibrate?.(30);fn()}})}
-window.addEventListener('scroll',()=>{window.__lpScroll=1;clearTimeout(window.__lpT);window.__lpT=setTimeout(()=>window.__lpScroll=0,150)},{passive:true,capture:true});
+function longPress(el,fn){let t=null,sx=0,sy=0,id=null;const cancel=()=>{clearTimeout(t);t=null;id=null};el._lpCancel=cancel;const E=(window.__lpEls??=new Set);E.size>4000&&E.clear();E.add(cancel);
+ el.addEventListener('pointerdown',e=>{if(e.button>0||e.target.closest('.star,button,a'))return cancel();sx=e.clientX;sy=e.clientY;id=e.pointerId;clearTimeout(t);t=setTimeout(()=>{t=null;if(window.__lpScroll)return;el.dataset.lp=1;window.__lpAt=Date.now();navigator.vibrate?.(30);fn()},650)});
+ el.addEventListener('pointermove',e=>{if(t&&e.pointerId===id&&Math.hypot(e.clientX-sx,e.clientY-sy)>10)cancel()},{passive:true});
+ ['pointerup','pointercancel','pointerleave','lostpointercapture'].forEach(n=>el.addEventListener(n,cancel));
+ el.addEventListener('touchmove',cancel,{passive:true});
+ // Android fires contextmenu ~400ms into a hold; never let it trigger the favorite toggle
+ el.addEventListener('contextmenu',e=>e.preventDefault())}
+window.addEventListener('scroll',()=>{window.__lpScroll=1;window.__lpEls?.forEach(f=>f());clearTimeout(window.__lpT);window.__lpT=setTimeout(()=>window.__lpScroll=0,150)},{passive:true,capture:true});
 // the row is redrawn by the long-press, so the click that follows lands on a new element: suppress by time, not by element
-const lpDone=el=>{if(el.dataset.lp||Date.now()-(window.__lpAt||0)<900){delete el.dataset.lp;window.__lpAt=0;return true}return false};
+const lpDone=el=>{if(el.dataset.lp||Date.now()-(window.__lpAt||0)<700){delete el.dataset.lp;window.__lpAt=0;return true}return false};
 $$('#tabs button').forEach(b=>b.onclick=()=>{const was=S.view;S.view=b.dataset.v;if(S.view!==was){if(S.view==='guide'&&history.state?.ctv==='tab'){history.back();return}if(S.view!=='guide')history.state?.ctv==='tab'?history.replaceState({ctv:'tab'},''):hpush('tab')}if(S.view==='vod'&&pl()?.type!=='xt')S.view='guide';render();if(S.view==='search')setTimeout(()=>$('#q').focus(),50);window.scrollTo({top:0,behavior:'smooth'})});
 $('#home').onclick=e=>{e.preventDefault();if(S.view!=='guide'&&history.state?.ctv==='tab'){history.back();return}S.view='guide';render()};
 $('#pFavHint')&&0;
@@ -631,7 +635,7 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
 })();
 
 /* ---------- version + stale-cache check (v18) ---------- */
-const APPV=22;
+const APPV=23;
 async function verCheck(){try{const r=await fetch('/version.json?n='+Date.now(),{cache:'no-store'});if(!r.ok)return;const v=+(await r.json()).v;
  if(v>APPV&&!recBusy()&&sessionStorage.getItem('ctv.vr')!==String(v)){sessionStorage.setItem('ctv.vr',String(v));const u=new URL(location.href);u.searchParams.set('v',v);location.replace(u.href)}}catch(e){}}
 verCheck();document.addEventListener('visibilitychange',()=>{if(!document.hidden&&$('#player').hidden)verCheck()});

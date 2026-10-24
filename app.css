@@ -82,7 +82,7 @@ main{max-width:1400px;margin:0 auto}
 .ch .lg{width:64px;height:48px;flex:none}.ch .t{flex:1;min-width:0}.ch b,.ch small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ch small{color:var(--mut)}.ch small.now{color:var(--gold)}
 .ch .num{color:var(--mut);font-weight:800;width:34px;text-align:right;font-size:13px}
 .pbar{height:3px;background:#ffffff14;border-radius:2px;margin-top:5px;overflow:hidden}.pbar i{display:block;height:100%;background:var(--gold)}
-.star{background:none;border:0;font-size:22px;color:var(--mut);padding:4px 8px}.star.on{color:var(--gold);text-shadow:0 0 10px #f7c23b88}
+.star{background:none;border:0;font-size:22px;color:var(--mut);padding:0;flex:none;width:44px;height:44px;margin:-4px -4px -4px 0;border-radius:50%;touch-action:manipulation}.star.on{color:var(--gold);text-shadow:0 0 10px #f7c23b88}
 /* skeleton */
 .sk{background:linear-gradient(90deg,#151a26 0%,#222a3b 50%,#151a26 100%);background-size:200% 100%;animation:sh 1.2s infinite;border-radius:12px}@keyframes sh{to{background-position:-200% 0}}
 .skrow{height:68px;margin:0 0 6px}
@@ -175,3 +175,5 @@ main{max-width:1400px;margin:0 auto}
 .grow,.ghead{width:max-content;min-width:100%}
 .gp.sched{box-shadow:inset 0 0 0 2px #e53935}.recdot{color:#ff4d4d;font-style:normal}
 #schedList .rec{display:flex;align-items:center;gap:12px;justify-content:space-between}#schedList .rec small{display:block;color:var(--mut)}#schedList .btn{padding:8px 14px;width:auto}
+
+.toast .undo{background:none;border:0;color:var(--gold);font-weight:800;font-size:15px;padding:6px 4px 6px 14px;cursor:pointer}
