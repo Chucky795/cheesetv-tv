@@ -1,4 +1,5 @@
 'use strict';
+let TV_PICKER=null;
 /* CheeseTV Web Player v2 - blank player. No content, URLs or credentials are bundled. Nothing is proxied. */
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],LS=localStorage;
 const J=(k,d)=>{try{return JSON.parse(LS.getItem(k))??d}catch(e){return d}};
@@ -551,7 +552,7 @@ $('#home').onclick=e=>{e.preventDefault();if(S.view!=='guide'&&history.state?.ct
 $('#pFavHint')&&0;
 
 /* ---------- sheets: settings ---------- */
-function sheet(h){$('#sheetCard').innerHTML=h;if($('#sheet').hidden)hpush('sheet');$('#sheet').hidden=false}function closeSheet(){$('#sheet').hidden=true}
+function sheet(h){$('#sheetCard').innerHTML=h;if($('#sheet').hidden)hpush('sheet');$('#sheet').hidden=false}function closeSheet(){if(TV_PICKER){TV_PICKER.cancel();TV_PICKER=null}$('#sheet').hidden=true}
 $('#sheet').onclick=e=>{if(e.target.id==='sheet')uiBack(closeSheet)};
 function openSettings(){sheet(`<div class="shd"><h3>Settings <small class="appver">v${APPV}</small></h3><button class="ic" onclick="uiBack(closeSheet)">&#10005;</button></div>
  <div class="vpn-set"><b>Buffering a lot?</b> Your internet provider may be slowing streams. Turn on a free VPN like Proton VPN, then reload. <a href="https://protonvpn.com/download" target="_blank" rel="noopener">Get Proton VPN</a></div>
@@ -643,7 +644,7 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
 })();
 
 /* ---------- version check + Update banner (v28) ---------- */
-const APPV=31;
+const APPV=32;
 async function hardUpdate(){try{if('serviceWorker' in navigator){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}
  if(window.caches){const k=await caches.keys();await Promise.all(k.map(x=>caches.delete(x)))}}catch(e){}
  const u=new URL(location.href);u.searchParams.set('v',Date.now());location.replace(u.href)}
@@ -820,18 +821,47 @@ async function playRaw(r){wmLive(0);openPlayer();$('#pName').textContent=r.title
 // the same login claims it and records it locally. Only titles, times and the channel's stream id
 // leave the browser; the video stays on the TV. Your plan allows 1 connection: overlaps are refused.
 const TVST={sent:'Sent, waiting for your TV',claimed:'Your TV picked it up',recording:'● Recording on your TV',done:'✓ Done, ready on your TV',failed:'✕ Failed',conflict:'⚠ Conflict',cancelled:'Cancelled'};
-async function tvRequest(c,title,a,b,now){const key=await sKey();if(!key){toast('Sign in with your CheeseTV (Xtream) login to record on your TV.',5000);return}
- const r=await rpc('sync_remote_record',{p_key:key,p_item_id:String(c.id).replace(/^x/,''),p_channel_title:String(c.name||'').slice(0,300),p_title:String(title||c.name||'').slice(0,300),p_kind:now?'now':'scheduled',p_start:new Date(a).toISOString(),p_end:new Date(b).toISOString(),p_origin:'web'});
- if(!r||r.bad){toast("Couldn't reach CheeseTV. Check your internet and try again.",5000);return}
- if(!r.ok){alert('⚠ '+(r.message||'Another recording is already set for that time.')+'\n\nOnly one show can record at a time. Cancel the other one in Recordings first.');return}
- toast((r.tvs===0?'Sent, but no TV is signed in to this account yet. Open CheeseTV on your TV with the same login.':r.tvs_online===0?"Sent, but your TV hasn't checked in for a while. Make sure it's on and online.":'📺 Sent to your TV.')+' Watching live elsewhere while it records may fail (1 connection).',8000);
- renderTvRecs()}
-function tvRecMenu(c,p){const now=Date.now(),air=p?p.a<=now:true,title=p?.t||c.name,end=p?.b;
- const opts=air?[[end&&end>now?'Until the show ends ('+hm(end)+')':null,end],['30 min',now+18e5],['1 hour',now+36e5],['2 hours',now+72e5]].filter(o=>o[0]):[['Record this show ('+hm(p.a)+' – '+hm(p.b)+')',p.b]];
- sheet(`<div class="shd"><h3>📺 Record on my TV</h3><button class="ic" onclick="uiBack(closeSheet)">&#10005;</button></div>
- <p style="margin:0 0 4px"><b>${esc(title)}</b> · ${esc(c.name)}</p><div style="display:grid;gap:8px;margin:12px 0">${opts.map((o,i)=>`<button class="btn ${i?'dark':'gold'}" data-i="${i}">⏺ ${esc(o[0])}</button>`).join('')}</div>
- <p class="note">Saves on your TV, not on this device: no storage is used here. Your TV at home records it with the CheeseTV app (signed in to the same login), even from standby. The video stays on the TV; watch it in the TV's DVR tab. Your service allows 1 connection, so watching live on another device while it records may fail.</p>`);
- $$('.sheet [data-i], #sheet [data-i]').forEach(b=>b.onclick=()=>{const o=opts[+b.dataset.i];uiBack(closeSheet);tvRequest(c,title,air?Date.now():p.a,o[1],air)})}
+async function tvRecMenu(c,p){
+ if(TV_PICKER&&!TV_PICKER.state.closed){toast('Finish or cancel the current recording request first.');return}
+ const api=window.CTV_RECORD_TARGET;if(!api){toast('Reload CheeseTV to choose a recording device.');return}
+ const now=Date.now(),air=p?p.a<=now:true,title=p?.t||c.name,end=p?.b;
+ const opts=air?[[end&&end>now?'Until the show ends ('+hm(end)+')':null,end],['30 min',30],['1 hour',60],['2 hours',120]].filter(o=>o[0]):[['Record this show ('+hm(p.a)+' – '+hm(p.b)+')',p.b]];
+ let accountKey=null;const client=api.create({rpc:(fn,body)=>rpc(fn,Object.assign({},body,{p_key:accountKey})),key:null});TV_PICKER=client;let selectedOption=air?null:0,result=null,loading=true;
+ // Loading/cancellation happens before any key lookup or network request can send a job.
+ function render(){
+  if(TV_PICKER!==client||client.state.closed)return;
+  const st=client.state,target=st.devices.find(d=>d.device_id===st.selected),busy=st.busy;
+  sheet(`<div class="shd"><h3>Choose recording device</h3><button class="ic" id="tvPickClose" aria-label="Cancel" ${busy?'disabled':''}>&#10005;</button></div>
+   <p><b>${esc(title)}</b> · ${esc(c.name)}</p>
+   <p class="note">Choose the exact registered TV. No device is selected automatically.</p>
+   <div class="tv-target-list" role="group" aria-label="Recording device">
+    ${loading?'<p role="status">Loading devices…</p>':st.devices.map((d,i)=>`<button class="btn dark tv-target" data-device="${i}" aria-pressed="${st.selected===d.device_id}" ${!d.online||busy||st.finished?'disabled':''}>${st.selected===d.device_id?'●':'○'} ${esc(api.label(d))} · ${d.online?'Recently seen (within 45 minutes)':'Not recently seen — open CheeseTV there'}</button>`).join('')}
+    ${!loading&&!st.devices.length?'<p class="note">No eligible recently seen receiver. Update CheeseTV on the intended Android TV to 1.1.44 (build 51) or newer, open it with the same login, then refresh. Nothing was sent.</p>':''}
+   </div>
+   ${!loading&&!busy&&!st.finished?'<button class="btn dark" id="tvPickRefresh">Refresh devices</button>':''}
+   ${target&&!st.finished?`<p><b>Save on: ${esc(api.label(target))}</b></p><div class="tv-target-list">${opts.map((o,i)=>`<button class="btn dark" data-duration="${i}" aria-pressed="${selectedOption===i}" ${busy?'disabled':''}>${selectedOption===i?'●':'○'} ${esc(o[0])}</button>`).join('')}</div>`:''}
+   ${result?`<p role="status" tabindex="-1" id="tvPickResult">${esc(result)}</p>`:''}
+   ${busy?'<p role="status">Sending to the selected device…</p>':''}
+   <div class="tv-target-list">${!st.finished?`<button class="btn gold" id="tvPickSend" ${!target||selectedOption===null||busy||loading?'disabled':''}>Send to ${esc(target?api.label(target):'selected device')}</button>`:''}
+   <button class="btn dark" id="tvPickCancel" ${busy?'disabled':''}>${st.finished?'Done':'Cancel'}</button></div>
+   <p class="note">Saves on the selected TV, not in this browser. The video stays there. Sent is not accepted or recording. Watching elsewhere may fail (one connection).</p>`);
+  $('#tvPickClose').onclick=$('#tvPickCancel').onclick=()=>{if(!st.busy){client.cancel();uiBack(closeSheet)}};
+  $('#tvPickRefresh')?.addEventListener('click',load);
+  $$('#sheet [data-device]').forEach(b=>b.onclick=()=>{client.select(st.devices[+b.dataset.device].device_id);render();$('#tvPickSend')?.focus()});
+  $$('#sheet [data-duration]').forEach(b=>b.onclick=()=>{selectedOption=+b.dataset.duration;render();$('#tvPickSend')?.focus()});
+  $('#tvPickSend')?.addEventListener('click',async()=>{
+   if(st.busy||st.finished||selectedOption===null||!st.selected)return;
+   const o=opts[selectedOption],a=air?Date.now():p.a,b=air&&o[1]<=120?a+o[1]*60000:o[1];
+   const promise=client.send({p_item_id:String(c.id).replace(/^x/,''),p_channel_title:String(c.name||'').slice(0,300),p_title:String(title).slice(0,300),p_kind:air?'now':'scheduled',p_start:new Date(a).toISOString(),p_end:new Date(b).toISOString()});render();
+   const r=await promise;result=r.message;render();$('#tvPickResult')?.focus();if(r.ok&&S.view==='recs')renderTvRecs();
+  });
+ }
+ async function load(){if(client.state.busy||client.state.finished)return;loading=true;result=null;render();try{await client.refresh()}catch(e){result=e.message}loading=false;render()}
+ render();$('#tvPickCancel')?.focus();
+ const key=await sKey();if(TV_PICKER!==client||client.state.closed)return;
+ if(!key){result='Sign in with your CheeseTV (Xtream) login to record on a TV.';loading=false;render();return}
+ accountKey=key;await load();
+}
 async function renderTvRecs(){let box=$('#tvRecs');if(!box){box=document.createElement('div');box.id='tvRecs';$('#recList').before(box)}
  const key=await sKey();if(!key){box.innerHTML='';return}const r=await rpc('sync_get_remote',{p_key:key});if(!r||r.bad){box.innerHTML='';return}
  const tvs=(r.devices||[]).filter(d=>d.kind==='tv'),on=tvs.filter(d=>d.online);
@@ -839,7 +869,7 @@ async function renderTvRecs(){let box=$('#tvRecs');if(!box){box=document.createE
  const jobs=(r.jobs||[]).filter(j=>['sent','claimed','recording','failed','conflict'].includes(j.status));
  const dt=x=>x?new Date(x).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
  box.innerHTML=`<h4 style="margin:8px 0">📺 My recordings (all devices)</h4>`+(warn?`<p class="note" style="color:var(--gold)">${esc(warn)}</p>`:`<p class="note">TVs online: ${on.map(d=>esc(d.name||'TV')).join(', ')}</p>`)+
-  jobs.map(j=>`<div class="rec" data-jid="${esc(j.job_id)}"><div><b>${esc(j.title)}</b><small>${esc(j.channel_title||'')} · ${dt(j.start_at)} – ${hm(Date.parse(j.end_at))}</small><small>${esc(TVST[j.status]||j.status)}${j.message?' · '+esc(j.message):''}</small></div>${['sent','claimed','recording'].includes(j.status)?'<button class="btn dark" data-a="tvcancel">Cancel</button>':''}</div>`).join('')+
+  jobs.map(j=>`<div class="rec" data-jid="${esc(j.job_id)}"><div><b>${esc(j.title)}</b><small>${esc(j.channel_title||'')} · ${dt(j.start_at)} – ${hm(Date.parse(j.end_at))}</small><small>${j.target_device_name?'On '+esc(j.target_device_name)+' ('+esc(String(j.target_device_id||'').slice(-6))+') · ':''}${esc(j.status==='claimed'&&j.target_device_id?(j.accepted_at?'Accepted and saved on selected TV':'Requested; awaiting local acceptance'):(TVST[j.status]||j.status))}${j.message?' · '+esc(j.message):''}</small></div>${['sent','claimed','recording'].includes(j.status)?'<button class="btn dark" data-a="tvcancel">Cancel</button>':''}</div>`).join('')+
   (r.dvr||[]).map(e=>`<div class="rec"><div><b>${esc(e.title||'Recording')}</b><small>${esc(e.channel_title||'')}${e.start_at?' · '+dt(e.start_at):''}${e.size_bytes?' · '+(e.size_bytes/1e6).toFixed(0)+' MB':''}</small><small>${e.status==='recording'?'● Recording':e.status==='failed'?'✕ Incomplete':'✓ Ready'} on <b>${esc(e.device_name||'a device')}</b> · plays on that device only</small></div></div>`).join('')+
   (!jobs.length&&!(r.dvr||[]).length?'<p class="note">Nothing yet. In the Guide, tap a show and choose 📺 Record on my TV.</p>':'');
  box.querySelectorAll('[data-a=tvcancel]').forEach(b=>b.onclick=async()=>{await rpc('sync_update_remote',{p_key:key,p_job_id:b.closest('.rec').dataset.jid,p_device_id:null,p_status:'cancelled'});toast('Cancelled');renderTvRecs()})}

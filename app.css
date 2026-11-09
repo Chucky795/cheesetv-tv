@@ -177,3 +177,10 @@ main{max-width:1400px;margin:0 auto}
 #schedList .rec{display:flex;align-items:center;gap:12px;justify-content:space-between}#schedList .rec small{display:block;color:var(--mut)}#schedList .btn{padding:8px 14px;width:auto}
 
 .toast .undo{background:none;border:0;color:var(--gold);font-weight:800;font-size:15px;padding:6px 4px 6px 14px;cursor:pointer}
+
+/* Recording destination: stacked full-width controls on phones, tablets and desktops. */
+.tv-target-list{display:grid;gap:8px;margin:12px 0;min-width:0}
+.tv-target-list .btn,.tv-target{width:100%;white-space:normal;overflow-wrap:anywhere;min-height:48px}
+.tv-target[aria-pressed="true"]{outline:2px solid var(--gold)}
+#sheetCard button:disabled{opacity:.5;cursor:not-allowed}
+#sheetCard button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
