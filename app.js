@@ -644,7 +644,7 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
 })();
 
 /* ---------- version check + Update banner (v28) ---------- */
-const APPV=32;
+const APPV=33;
 async function hardUpdate(){try{if('serviceWorker' in navigator){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}
  if(window.caches){const k=await caches.keys();await Promise.all(k.map(x=>caches.delete(x)))}}catch(e){}
  const u=new URL(location.href);u.searchParams.set('v',Date.now());location.replace(u.href)}
@@ -835,11 +835,11 @@ async function tvRecMenu(c,p){
    <p><b>${esc(title)}</b> · ${esc(c.name)}</p>
    <p class="note">Choose the exact registered TV. No device is selected automatically.</p>
    <div class="tv-target-list" role="group" aria-label="Recording device">
-    ${loading?'<p role="status">Loading devices…</p>':st.devices.map((d,i)=>`<button class="btn dark tv-target" data-device="${i}" aria-pressed="${st.selected===d.device_id}" ${!d.online||busy||st.finished?'disabled':''}>${st.selected===d.device_id?'●':'○'} ${esc(api.label(d))} · ${d.online?'Recently seen (within 45 minutes)':'Not recently seen — open CheeseTV there'}</button>`).join('')}
+    ${loading?'<p role="status">Loading devices…</p>':st.devices.map((d,i)=>`<button class="btn dark tv-target" data-device="${i}" aria-pressed="${st.selected===d.device_id}" ${!d.online||busy||st.finished?'disabled':''}>${st.selected===d.device_id?'●':'○'} ${esc(api.label(d))} · ${esc(api.presence(d))}</button>`).join('')}
     ${!loading&&!st.devices.length?'<p class="note">No eligible recently seen receiver. Update CheeseTV on the intended Android TV to 1.1.44 (build 51) or newer, open it with the same login, then refresh. Nothing was sent.</p>':''}
    </div>
    ${!loading&&!busy&&!st.finished?'<button class="btn dark" id="tvPickRefresh">Refresh devices</button>':''}
-   ${target&&!st.finished?`<p><b>Save on: ${esc(api.label(target))}</b></p><div class="tv-target-list">${opts.map((o,i)=>`<button class="btn dark" data-duration="${i}" aria-pressed="${selectedOption===i}" ${busy?'disabled':''}>${selectedOption===i?'●':'○'} ${esc(o[0])}</button>`).join('')}</div>`:''}
+   ${target&&!st.finished?`<p><b>Save on: ${esc(api.label(target))}</b></p>${(w=>w?`<p class="note warn">${esc(w)}</p>`:'')(api.offWarning(target,hm(air?now:p.a),!air))}<div class="tv-target-list">${opts.map((o,i)=>`<button class="btn dark" data-duration="${i}" aria-pressed="${selectedOption===i}" ${busy?'disabled':''}>${selectedOption===i?'●':'○'} ${esc(o[0])}</button>`).join('')}</div>`:''}
    ${result?`<p role="status" tabindex="-1" id="tvPickResult">${esc(result)}</p>`:''}
    ${busy?'<p role="status">Sending to the selected device…</p>':''}
    <div class="tv-target-list">${!st.finished?`<button class="btn gold" id="tvPickSend" ${!target||selectedOption===null||busy||loading?'disabled':''}>Send to ${esc(target?api.label(target):'selected device')}</button>`:''}
@@ -869,7 +869,7 @@ async function renderTvRecs(){let box=$('#tvRecs');if(!box){box=document.createE
  const jobs=(r.jobs||[]).filter(j=>['sent','claimed','recording','failed','conflict'].includes(j.status));
  const dt=x=>x?new Date(x).toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
  box.innerHTML=`<h4 style="margin:8px 0">📺 My recordings (all devices)</h4>`+(warn?`<p class="note" style="color:var(--gold)">${esc(warn)}</p>`:`<p class="note">TVs online: ${on.map(d=>esc(d.name||'TV')).join(', ')}</p>`)+
-  jobs.map(j=>`<div class="rec" data-jid="${esc(j.job_id)}"><div><b>${esc(j.title)}</b><small>${esc(j.channel_title||'')} · ${dt(j.start_at)} – ${hm(Date.parse(j.end_at))}</small><small>${j.target_device_name?'On '+esc(j.target_device_name)+' ('+esc(String(j.target_device_id||'').slice(-6))+') · ':''}${esc(j.status==='claimed'&&j.target_device_id?(j.accepted_at?'Accepted and saved on selected TV':'Requested; awaiting local acceptance'):(TVST[j.status]||j.status))}${j.message?' · '+esc(j.message):''}</small></div>${['sent','claimed','recording'].includes(j.status)?'<button class="btn dark" data-a="tvcancel">Cancel</button>':''}</div>`).join('')+
+  jobs.map(j=>`<div class="rec" data-jid="${esc(j.job_id)}"><div><b>${esc(j.title)}</b><small>${esc(j.channel_title||'')} · ${dt(j.start_at)} – ${hm(Date.parse(j.end_at))}</small><small>${j.target_device_name?'On '+esc(j.target_device_name)+' ('+esc(String(j.target_device_id||'').slice(-6))+') · ':''}${esc(j.status==='claimed'&&j.target_device_id?(j.accepted_at?'Accepted and saved on selected TV':'Requested; awaiting local acceptance'):(j.status==='sent'&&j.target_device_id&&window.CTV_RECORD_TARGET?CTV_RECORD_TARGET.waitingText(j.target_device_name||'Your TV',Date.now(),Date.parse(j.start_at),Date.parse(j.end_at),hm(Date.parse(j.start_at)),hm(Date.parse(j.end_at))):(TVST[j.status]||j.status)))}${j.message?' · '+esc(window.CTV_RECORD_TARGET?CTV_RECORD_TARGET.explainFailure(j.message):j.message):''}</small></div>${['sent','claimed','recording'].includes(j.status)?'<button class="btn dark" data-a="tvcancel">Cancel</button>':''}</div>`).join('')+
   (r.dvr||[]).map(e=>`<div class="rec"><div><b>${esc(e.title||'Recording')}</b><small>${esc(e.channel_title||'')}${e.start_at?' · '+dt(e.start_at):''}${e.size_bytes?' · '+(e.size_bytes/1e6).toFixed(0)+' MB':''}</small><small>${e.status==='recording'?'● Recording':e.status==='failed'?'✕ Incomplete':'✓ Ready'} on <b>${esc(e.device_name||'a device')}</b> · plays on that device only</small></div></div>`).join('')+
   (!jobs.length&&!(r.dvr||[]).length?'<p class="note">Nothing yet. In the Guide, tap a show and choose 📺 Record on my TV.</p>':'');
  box.querySelectorAll('[data-a=tvcancel]').forEach(b=>b.onclick=async()=>{await rpc('sync_update_remote',{p_key:key,p_job_id:b.closest('.rec').dataset.jid,p_device_id:null,p_status:'cancelled'});toast('Cancelled');renderTvRecs()})}
