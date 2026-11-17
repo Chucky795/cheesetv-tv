@@ -105,7 +105,6 @@ let XTI=null; // reuse the sign-in answer: some providers reject the same reques
 async function loadXtream(p){
  const ck=p.server+'|'+p.user;const info=XTI&&XTI.k===ck&&Date.now()-XTI.t<60000?XTI.j:await getJSON(`${xb(p)}/player_api.php?${xq(p)}`,'Xtream server');XTI=null;
  if(!info.user_info||String(info.user_info.auth)!=='1')throw new Error('Sign in failed. Check the server URL, username and password.');
- S.maxCon=window.MVR?MVR.parseMax(info):null; // v34 Multi-view: Xtream max_connections
  const fm=info.user_info.allowed_output_formats||[];p.fmt=fm.includes('m3u8')||!fm.length?'m3u8':'ts';
  const [cats,streams]=await Promise.all([getJSON(`${xb(p)}/player_api.php?${xq(p)}&action=get_live_categories`,'Xtream server'),getJSON(`${xb(p)}/player_api.php?${xq(p)}&action=get_live_streams`,'Xtream server')]);
  const cn={};(cats||[]).forEach(c=>cn[c.category_id]=c.category_name);
@@ -113,7 +112,7 @@ async function loadXtream(p){
   url:`${xb(p)}/live/${xp(p)}/${s.stream_id}.${p.fmt}`,alt:`${xb(p)}/live/${xp(p)}/${s.stream_id}.${p.fmt==='m3u8'?'ts':'m3u8'}`})),epg:`${xb(p)}/xmltv.php?${xq(p)}`};
 }
 async function loadActive(){syncGet().then(ch=>{if(ch&&S.chans.length&&S.view!=='vod')render()});
- const p=pl();S.chans=[];S.epg={};S.epgState='';S.vod=null;S.maxCon=undefined;if(window.MV)MV.parked=null;
+ const p=pl();S.chans=[];S.epg={};S.epgState='';S.vod=null;
  if(!p){showSignin();return}
  S.active=p.id;S.sepg={};S.sepgQ=[];$('#signin').hidden=true;$('#shell').hidden=false;$('#tabVod').hidden=p.type!=='xt';if(p.type!=='xt'&&S.view==='vod')S.view='guide';
  skeleton();
@@ -645,7 +644,7 @@ function goHttp(p){let url=HTTP_COPY;if(p.type==='xt'){const q=new URLSearchPara
 })();
 
 /* ---------- version check + Update banner (v28) ---------- */
-const APPV=34;
+const APPV=35;
 async function hardUpdate(){try{if('serviceWorker' in navigator){const rs=await navigator.serviceWorker.getRegistrations();await Promise.all(rs.map(r=>r.unregister()))}
  if(window.caches){const k=await caches.keys();await Promise.all(k.map(x=>caches.delete(x)))}}catch(e){}
  const u=new URL(location.href);u.searchParams.set('v',Date.now());location.replace(u.href)}
@@ -670,7 +669,6 @@ const H={skip:0,exitAt:0};
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&history.state?.n==='fs'){H.skip=1;history.back()}});
 function closeTop(){
  if(document.fullscreenElement||document.webkitFullscreenElement){(document.exitFullscreen||document.webkitExitFullscreen).call(document);return true}
- if(window.MV){const r=MV.back();if(r==='stay'){hpush('mv');return true}if(r)return true} // v34 Multi-view: grid, full screen, picker
  if(!$('#mini').hidden&&!$('#player').hidden){$('#mini').hidden=true;return true}
  if(!$('#player').hidden){closePlayer();return true} // stops and releases the stream
  if(!$('#sheet').hidden){closeSheet();return true}
